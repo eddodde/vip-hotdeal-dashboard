@@ -28,13 +28,18 @@ repo에 커밋된 깨끗한 CSV에서 로드합니다.
 # (다른 위치면)  ./convert.ps1 -Hotdeal "경로\핫딜.xlsx" -Table "경로\Table.xlsx"
 ```
 
-`data/*.csv`가 새로 생성됩니다. 이후:
+`data/*.csv`가 새로 생성됩니다. 이후 반영 방법은 **둘 중 하나**:
 
+**① git push (영구 반영)**
 ```powershell
 git add data; git commit -m "데이터 갱신"; git push
 ```
 
-push 하면 Streamlit Cloud에 자동 반영됩니다.
+**② 브라우저 업로드 (그때그때, git 불필요)**
+대시보드 사이드바 **⚙️ 설정 → 📤 데이터 올리기**에서 방금 만든
+`hotdeal.csv` / `table_trend.csv` 를 올리면 그 세션에 바로 반영됩니다.
+
+> ⚠️ 원본 `.xlsx` 는 DRM 암호화라 업로드해도 못 읽습니다. **반드시 `convert.ps1` 로 만든 CSV** 를 올리세요(잘못 올리면 안내 메시지가 뜹니다).
 
 ## 로컬 실행 (선택)
 ```bash

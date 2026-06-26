@@ -5,6 +5,7 @@ import plotly.express as px
 import plotly.graph_objects as go
 import streamlit.components.v1 as components
 import pathlib
+import io
 
 # ══════════════════════════════════════════════════════════════
 # VIP 핫딜 트렌드 대시보드
@@ -70,9 +71,13 @@ NUMCOLS = ["UV", "PV", "cust", "ord", "qty", "rev",
 
 
 @st.cache_data(show_spinner=False)
-def load_hotdeal():
+def load_hotdeal(upload_bytes=None):
     """슬롯·상품 단위 일별 매출 상세."""
-    df = pd.read_csv(DATA / "hotdeal.csv", dtype={"prodcode": str})
+    src = io.BytesIO(upload_bytes) if upload_bytes else (DATA / "hotdeal.csv")
+    df = pd.read_csv(src, dtype={"prodcode": str})
+    if "date" not in df.columns or "row_type" not in df.columns:
+        raise ValueError("핫딜 CSV 형식이 아닙니다(date, row_type 컬럼 필요). "
+                         "convert.ps1이 만든 hotdeal.csv 인지 확인하세요.")
     df["date"] = pd.to_datetime(df["date"], errors="coerce")
     df = df.dropna(subset=["date"])
     for c in NUMCOLS:
@@ -85,9 +90,12 @@ def load_hotdeal():
 
 
 @st.cache_data(show_spinner=False)
-def load_table():
+def load_table(upload_bytes=None):
     """콘텐츠 영역별 일별 UV/PV 장기 추세."""
-    df = pd.read_csv(DATA / "table_trend.csv")
+    src = io.BytesIO(upload_bytes) if upload_bytes else (DATA / "table_trend.csv")
+    df = pd.read_csv(src)
+    if not {"date", "metric", "area", "value"}.issubset(df.columns):
+        raise ValueError("트래픽 CSV 형식이 아닙니다(date, metric, area, value 컬럼 필요).")
     df["date"] = pd.to_datetime(df["date"], errors="coerce")
     df["value"] = pd.to_numeric(df["value"], errors="coerce")
     return df.dropna(subset=["date"])
@@ -176,9 +184,36 @@ def trend_word(s):
     return word, chg
 
 
-# ── 로드 ────────────────────────────────────────────────────
-H = load_hotdeal()
-T = load_table()
+# ── 사이드바: 데이터 업로드 → 로드 ──────────────────────────
+with st.sidebar:
+    st.header("⚙️ 설정")
+    with st.expander("📤 데이터 올리기 (매일 갱신)", expanded=False):
+        st.caption("`convert.ps1` 로 변환한 **hotdeal.csv · table_trend.csv** 를 올리면 "
+                   "git push 없이 바로 반영됩니다. (원본 .xlsx 는 DRM 암호화라 불가)")
+        up_h = st.file_uploader("핫딜 매출 CSV", type=["csv"], key="up_h")
+        up_t = st.file_uploader("트래픽 CSV", type=["csv"], key="up_t")
+
+
+def _bytes(up):
+    """업로드 검증: DRM 원본(.xlsx) 차단, CSV 바이트 반환."""
+    if up is None:
+        return None
+    raw = up.getvalue()
+    if raw[:5] == b"SCDSA" or raw[:2] == b"PK":
+        st.sidebar.error(f"'{up.name}' 은 DRM 암호화 원본(.xlsx)이라 읽을 수 없습니다. "
+                         "convert.ps1 로 변환한 CSV를 올려 주세요.")
+        st.stop()
+    return raw
+
+
+try:
+    H = load_hotdeal(_bytes(up_h))
+    T = load_table(_bytes(up_t))
+except Exception as e:
+    st.error(f"데이터를 읽는 중 오류가 발생했습니다: {e}")
+    st.stop()
+
+src_note = "업로드 데이터" if (up_h or up_t) else "기본(커밋된) 데이터"
 SLOTS = H[H["row_type"] == "SLOT"].copy()    # 슬롯·상품(매출 집계용, 가산 가능)
 TOTD = (H[H["row_type"] == "TOTAL"]
         .set_index("date").sort_index())     # 일 단위 페이지 총계(UV/PV는 중복제거값)
@@ -199,9 +234,8 @@ MENU = [
     ("sec-table", "📋 상세 데이터"),
 ]
 
-# ── 사이드바 ────────────────────────────────────────────────
+# ── 사이드바: 필터 ──────────────────────────────────────────
 with st.sidebar:
-    st.header("⚙️ 설정")
     dmin = SLOTS["date"].min().date()
     dmax = SLOTS["date"].max().date()
     default_start = max(dmin, (pd.Timestamp(dmax) - pd.Timedelta(days=180)).date())
@@ -216,7 +250,7 @@ with st.sidebar:
     st.markdown("".join(f'<a href="#{a}" class="navlink">{lbl}</a>' for a, lbl in MENU),
                 unsafe_allow_html=True)
     st.divider()
-    st.caption("데이터: 2023 + 2024-07 ~ {} · 매출은 거래액(VAT 제외)".format(dmax))
+    st.caption(f"📦 {src_note} · {dmin} ~ {dmax} · 매출은 거래액(VAT 제외)")
 
 # ── 필터 적용 ───────────────────────────────────────────────
 d0 = pd.Timestamp(d0)
@@ -302,16 +336,16 @@ ord_s = resample(daily(FS, "ord"), freq)
 ma = rev_s.rolling(7, min_periods=2).mean()
 
 fig = go.Figure()
-fig.add_bar(x=rev_s.index, y=rev_s.values, name="거래액",
-            marker_color=ACCENT, opacity=0.55)
+fig.add_trace(go.Scatter(x=rev_s.index, y=rev_s.values, name="거래액",
+                         mode="lines+markers", line=dict(color=ACCENT, width=2.4),
+                         marker=dict(size=4)))
 fig.add_trace(go.Scatter(x=ma.index, y=ma.values, name="거래액 이동평균",
-                         line=dict(color="#922B21", width=2)))
+                         line=dict(color="#922B21", width=1.5, dash="dash"), opacity=0.7))
 fig.add_trace(go.Scatter(x=ord_s.index, y=ord_s.values, name="주문 건수",
-                         yaxis="y2", line=dict(color="#4C72B0", width=2, dash="dot")))
+                         yaxis="y2", line=dict(color="#4C72B0", width=1.5, dash="dot")))
 fig.update_layout(
     yaxis=dict(title="거래액(원)"),
-    yaxis2=dict(title="주문", overlaying="y", side="right", showgrid=False),
-    barmode="group")
+    yaxis2=dict(title="주문", overlaying="y", side="right", showgrid=False))
 plot(fig, height=420)
 
 # 연도(YoY) 비교 — 월별 거래액
