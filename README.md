@@ -19,27 +19,24 @@ repo에 커밋된 깨끗한 CSV에서 로드합니다.
 
 기간: 2023년 + 2024-07 ~ 현재. **2024년 상반기는 원본에 데이터 공백**(두 export를 이어붙인 형태)이라 차트에서 선이 끊겨 표시됩니다.
 
-## 데이터 갱신 (중요)
-원본 `핫딜.xlsx` / `Table.xlsx`는 회사 **DRM(Softcamp)으로 암호화**돼 있어 pandas/openpyxl로 직접 못 읽고, Excel "CSV로 저장"도 다시 암호화돼 깨집니다. 그래서 변환은 **Excel COM 기반 PowerShell 스크립트**로 합니다.
+## 데이터 갱신
+원본 `핫딜.xlsx` / `Table.xlsx`는 회사 **DRM(Softcamp)으로 암호화**돼 있습니다. 암호화 상태 그대로는 어디서도 못 읽으므로, 갱신 방법은 둘 중 하나:
 
+**① DRM 해제 후 xlsx를 그대로 업로드 (가장 간단)**
+파일을 **DRM 해제(반출)** 한 뒤, 대시보드 사이드바 **⚙️ 설정 → 📤 데이터 올리기**에서
+해제한 `핫딜.xlsx` · `Table.xlsx` 를 그대로 올리면 앱이 파싱해 바로 반영합니다.
+(아직 암호화 상태면 *"DRM 암호화 상태입니다"* 안내가 뜹니다.)
+
+**② convert.ps1 로 CSV 변환 후 push (영구 반영)**
+DRM 해제가 번거로우면, Excel COM 기반 스크립트로 변환:
 ```powershell
-# 두 원본 파일을 Downloads에 받아둔 뒤:
-./convert.ps1
-# (다른 위치면)  ./convert.ps1 -Hotdeal "경로\핫딜.xlsx" -Table "경로\Table.xlsx"
-```
-
-`data/*.csv`가 새로 생성됩니다. 이후 반영 방법은 **둘 중 하나**:
-
-**① git push (영구 반영)**
-```powershell
+./convert.ps1            # Downloads의 핫딜.xlsx, Table.xlsx 사용
 git add data; git commit -m "데이터 갱신"; git push
 ```
+> Excel "CSV로 저장"은 DRM이 재암호화해 깨지므로 반드시 `convert.ps1` 을 쓰세요.
+> 만든 `data/*.csv` 는 업로드란에도 올릴 수 있습니다.
 
-**② 브라우저 업로드 (그때그때, git 불필요)**
-대시보드 사이드바 **⚙️ 설정 → 📤 데이터 올리기**에서 방금 만든
-`hotdeal.csv` / `table_trend.csv` 를 올리면 그 세션에 바로 반영됩니다.
-
-> ⚠️ 원본 `.xlsx` 는 DRM 암호화라 업로드해도 못 읽습니다. **반드시 `convert.ps1` 로 만든 CSV** 를 올리세요(잘못 올리면 안내 메시지가 뜹니다).
+두 방식 모두 같은 변환 로직(그룹형 일자 채우기·연도 역산·가로형 펼치기)을 씁니다.
 
 ## 로컬 실행 (선택)
 ```bash

@@ -6,6 +6,8 @@ import plotly.graph_objects as go
 import streamlit.components.v1 as components
 import pathlib
 import io
+import re
+import datetime as _dt
 
 # ══════════════════════════════════════════════════════════════
 # VIP 핫딜 트렌드 대시보드
@@ -70,14 +72,129 @@ NUMCOLS = ["UV", "PV", "cust", "ord", "qty", "rev",
            "h_UV", "h_PV", "h_cust", "h_ord", "h_qty", "h_rev"]
 
 
+def _isblank(x):
+    return x is None or (isinstance(x, float) and pd.isna(x)) or str(x).strip() == ""
+
+
+def _md(s):
+    """'M/D' 또는 'YY/MM/DD' → (month, day, year|None)."""
+    s = str(s).strip()
+    m = re.match(r"^(\d+)/(\d+)/(\d+)", s)
+    if m:
+        return int(m.group(2)), int(m.group(3)), 2000 + int(m.group(1))
+    m = re.match(r"^(\d+)/(\d+)", s)
+    if m:
+        return int(m.group(1)), int(m.group(2)), None
+    return None
+
+
+def parse_hotdeal_xlsx(raw):
+    """해제된 핫딜.xlsx(그룹형) → tidy DataFrame. convert.ps1 과 동일 로직."""
+    g = pd.read_excel(io.BytesIO(raw), sheet_name=0, header=None).values
+    n, ncol = g.shape
+    tot = []   # [rowidx, m, d, year|None]
+    for r in range(1, n):
+        if _isblank(g[r, 0]):
+            continue
+        p = _md(g[r, 0])
+        if p:
+            tot.append([r, p[0], p[1], p[2]])
+    if not tot:
+        raise ValueError("핫딜 시트에서 일자 행을 찾지 못했습니다. 시트 구조를 확인하세요.")
+    k = 0
+    while k < len(tot) and tot[k][3] is None:
+        k += 1
+    for i in range(k - 1, -1, -1):           # 연도 역산(앞부분 M/D)
+        ny = tot[i + 1][3]
+        if tot[i][1] > tot[i + 1][1]:
+            ny -= 1
+        tot[i][3] = ny
+    for i in range(k + 1, len(tot)):         # 잔여 None 순방향 보정
+        if tot[i][3] is None:
+            ny = tot[i - 1][3]
+            if tot[i][1] < tot[i - 1][1]:
+                ny += 1
+            tot[i][3] = ny
+    rowdate = {t[0]: f"{t[3]:04d}-{t[1]:02d}-{t[2]:02d}" for t in tot}
+
+    def cell(r, c):
+        return "" if (c >= ncol or _isblank(g[r, c])) else g[r, c]
+
+    rows, cur = [], None
+    for r in range(1, n):
+        if r in rowdate:
+            cur = rowdate[r]
+        if _isblank(g[r, 2]):
+            continue
+        detail = str(g[r, 2]).strip()
+        if detail == "Total":
+            slot, rt = "Total", "TOTAL"
+        elif "오전" in detail:
+            slot, rt = "오전", "SLOT"
+        elif "오후" in detail:
+            slot, rt = "오후", "SLOT"
+        else:
+            slot, rt = detail, "SLOT"
+        rows.append({
+            "date": cur, "slot": slot, "row_type": rt,
+            "prodcode": cell(r, 4), "prodname": cell(r, 5), "md": cell(r, 6),
+            "bpu": cell(r, 7), "brand": cell(r, 8), "category": cell(r, 9),
+            "UV": cell(r, 10), "PV": cell(r, 11), "cust": cell(r, 12),
+            "ord": cell(r, 13), "qty": cell(r, 14), "rev": cell(r, 15),
+            "h_UV": cell(r, 16), "h_PV": cell(r, 17), "h_cust": cell(r, 18),
+            "h_ord": cell(r, 19), "h_qty": cell(r, 20), "h_rev": cell(r, 21),
+        })
+    return pd.DataFrame(rows)
+
+
+def parse_table_xlsx(raw):
+    """해제된 Table.xlsx(가로형) → tidy DataFrame(date,metric,area,value)."""
+    g = pd.read_excel(io.BytesIO(raw), sheet_name=0, header=None).values
+    nrow, ncol = g.shape
+    cols = list(range(2, ncol))
+
+    def md_cell(x):
+        if isinstance(x, (pd.Timestamp, _dt.datetime, _dt.date)):
+            return x.month, x.day
+        s = str(x).strip().split("/")
+        return int(s[0]), int(s[1])
+
+    md = [md_cell(g[0, c]) for c in cols]
+    roll, prevm = 0, md[0][0]
+    for m, _d in md:
+        if m < prevm:
+            roll += 1
+        prevm = m
+    end_year = pd.Timestamp.today().year     # 마지막 날짜 = 최근으로 가정
+    years, y, prevm = [], end_year - roll, md[0][0]
+    for m, _d in md:
+        if m < prevm:
+            y += 1
+        years.append(y)
+        prevm = m
+    metric_of = {1: "UV", 2: "UV", 3: "UV", 4: "UV", 5: "PV", 6: "PV", 7: "PV", 8: "PV"}
+    recs = []
+    for r, metric in metric_of.items():
+        if r >= nrow:
+            continue
+        area = "" if _isblank(g[r, 1]) else str(g[r, 1]).strip()
+        for idx, c in enumerate(cols):
+            dt = f"{years[idx]:04d}-{md[idx][0]:02d}-{md[idx][1]:02d}"
+            recs.append({"date": dt, "metric": metric, "area": area, "value": g[r, c]})
+    return pd.DataFrame(recs)
+
+
 @st.cache_data(show_spinner=False)
 def load_hotdeal(upload_bytes=None):
-    """슬롯·상품 단위 일별 매출 상세."""
-    src = io.BytesIO(upload_bytes) if upload_bytes else (DATA / "hotdeal.csv")
-    df = pd.read_csv(src, dtype={"prodcode": str})
+    """슬롯·상품 단위 일별 매출 상세. xlsx(해제본)·csv·기본 데이터 모두 지원."""
+    if upload_bytes and upload_bytes[:2] == b"PK":       # 해제된 xlsx
+        df = parse_hotdeal_xlsx(upload_bytes)
+    else:
+        src = io.BytesIO(upload_bytes) if upload_bytes else (DATA / "hotdeal.csv")
+        df = pd.read_csv(src, dtype={"prodcode": str})
     if "date" not in df.columns or "row_type" not in df.columns:
-        raise ValueError("핫딜 CSV 형식이 아닙니다(date, row_type 컬럼 필요). "
-                         "convert.ps1이 만든 hotdeal.csv 인지 확인하세요.")
+        raise ValueError("핫딜 데이터 형식이 아닙니다(date, row_type 필요). "
+                         "핫딜.xlsx(해제본) 또는 hotdeal.csv 인지 확인하세요.")
     df["date"] = pd.to_datetime(df["date"], errors="coerce")
     df = df.dropna(subset=["date"])
     for c in NUMCOLS:
@@ -91,11 +208,14 @@ def load_hotdeal(upload_bytes=None):
 
 @st.cache_data(show_spinner=False)
 def load_table(upload_bytes=None):
-    """콘텐츠 영역별 일별 UV/PV 장기 추세."""
-    src = io.BytesIO(upload_bytes) if upload_bytes else (DATA / "table_trend.csv")
-    df = pd.read_csv(src)
+    """콘텐츠 영역별 일별 UV/PV 장기 추세. xlsx(해제본)·csv·기본 데이터 모두 지원."""
+    if upload_bytes and upload_bytes[:2] == b"PK":       # 해제된 xlsx
+        df = parse_table_xlsx(upload_bytes)
+    else:
+        src = io.BytesIO(upload_bytes) if upload_bytes else (DATA / "table_trend.csv")
+        df = pd.read_csv(src)
     if not {"date", "metric", "area", "value"}.issubset(df.columns):
-        raise ValueError("트래픽 CSV 형식이 아닙니다(date, metric, area, value 컬럼 필요).")
+        raise ValueError("트래픽 데이터 형식이 아닙니다(date, metric, area, value 필요).")
     df["date"] = pd.to_datetime(df["date"], errors="coerce")
     df["value"] = pd.to_numeric(df["value"], errors="coerce")
     return df.dropna(subset=["date"])
@@ -188,20 +308,20 @@ def trend_word(s):
 with st.sidebar:
     st.header("⚙️ 설정")
     with st.expander("📤 데이터 올리기 (매일 갱신)", expanded=False):
-        st.caption("`convert.ps1` 로 변환한 **hotdeal.csv · table_trend.csv** 를 올리면 "
-                   "git push 없이 바로 반영됩니다. (원본 .xlsx 는 DRM 암호화라 불가)")
-        up_h = st.file_uploader("핫딜 매출 CSV", type=["csv"], key="up_h")
-        up_t = st.file_uploader("트래픽 CSV", type=["csv"], key="up_t")
+        st.caption("**DRM 해제한** 핫딜.xlsx · Table.xlsx (또는 convert.ps1 로 만든 CSV)를 "
+                   "올리면 git push 없이 바로 반영됩니다.")
+        up_h = st.file_uploader("핫딜 매출 (xlsx / csv)", type=["xlsx", "csv"], key="up_h")
+        up_t = st.file_uploader("트래픽 Table (xlsx / csv)", type=["xlsx", "csv"], key="up_t")
 
 
 def _bytes(up):
-    """업로드 검증: DRM 원본(.xlsx) 차단, CSV 바이트 반환."""
+    """업로드 검증: 아직 DRM 암호화 상태면 차단, 아니면 바이트 반환."""
     if up is None:
         return None
     raw = up.getvalue()
-    if raw[:5] == b"SCDSA" or raw[:2] == b"PK":
-        st.sidebar.error(f"'{up.name}' 은 DRM 암호화 원본(.xlsx)이라 읽을 수 없습니다. "
-                         "convert.ps1 로 변환한 CSV를 올려 주세요.")
+    if raw[:4] == b"SCDS":     # Softcamp DRM 미해제
+        st.sidebar.error(f"'{up.name}' 은 아직 DRM 암호화 상태입니다. "
+                         "암호화 해제(반출) 후 다시 올려 주세요.")
         st.stop()
     return raw
 
