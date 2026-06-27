@@ -91,33 +91,22 @@ def _md(s):
 
 
 def parse_hotdeal_xlsx(raw):
-    """해제된 핫딜.xlsx(그룹형) → tidy DataFrame. convert.ps1 과 동일 로직."""
+    """해제된 핫딜.xlsx(그룹형) → tidy DataFrame. convert.ps1 과 동일 로직.
+    일자에 연도가 없는(M/D) 행은 제외하고, 명시적 연도(YY/MM/DD)만 사용."""
     g = pd.read_excel(io.BytesIO(raw), sheet_name=0, header=None).values
     n, ncol = g.shape
-    tot = []   # [rowidx, m, d, year|None]
+    # Total 행 → 날짜. 연도 없는 행은 None 으로 표시해 이후 행을 무효화.
+    rowdate = {}
     for r in range(1, n):
         if _isblank(g[r, 0]):
             continue
         p = _md(g[r, 0])
-        if p:
-            tot.append([r, p[0], p[1], p[2]])
-    if not tot:
-        raise ValueError("핫딜 시트에서 일자 행을 찾지 못했습니다. 시트 구조를 확인하세요.")
-    k = 0
-    while k < len(tot) and tot[k][3] is None:
-        k += 1
-    for i in range(k - 1, -1, -1):           # 연도 역산(앞부분 M/D)
-        ny = tot[i + 1][3]
-        if tot[i][1] > tot[i + 1][1]:
-            ny -= 1
-        tot[i][3] = ny
-    for i in range(k + 1, len(tot)):         # 잔여 None 순방향 보정
-        if tot[i][3] is None:
-            ny = tot[i - 1][3]
-            if tot[i][1] < tot[i - 1][1]:
-                ny += 1
-            tot[i][3] = ny
-    rowdate = {t[0]: f"{t[3]:04d}-{t[1]:02d}-{t[2]:02d}" for t in tot}
+        if p and p[2] is not None:           # 연도 명시 → 사용
+            rowdate[r] = f"{p[2]:04d}-{p[0]:02d}-{p[1]:02d}"
+        elif p:                              # 연도 없음 → 해당 일자 그룹 제외
+            rowdate[r] = None
+    if not any(v for v in rowdate.values()):
+        raise ValueError("핫딜 시트에서 연도가 있는 일자 행을 찾지 못했습니다.")
 
     def cell(r, c):
         return "" if (c >= ncol or _isblank(g[r, c])) else g[r, c]
@@ -126,6 +115,8 @@ def parse_hotdeal_xlsx(raw):
     for r in range(1, n):
         if r in rowdate:
             cur = rowdate[r]
+        if cur is None:                      # 연도 없는 일자 그룹 / 첫 일자 이전 → 제외
+            continue
         if _isblank(g[r, 2]):
             continue
         detail = str(g[r, 2]).strip()
@@ -566,7 +557,7 @@ if pct(cur_m[0], prev_m[0]) is not None:
 if pct(cur_m[0], prev_y[0]) is not None:
     bits.append(f"전년 동월 대비 {pct(cur_m[0], prev_y[0]):+.0f}%")
 else:
-    bits.append("전년 동월은 데이터 공백(2024 상반기 등)으로 비교 불가일 수 있음")
+    bits.append("전년 동월 데이터가 없어 전년비는 비교 불가")
 insight("최신 기준 " + " · ".join(bits) + ". "
         "이번 주/달은 <b>진행 중</b>이라 일평균(운영일 평균)으로 비교합니다.")
 
@@ -636,8 +627,8 @@ figy = px.line(ym, x="month", y="rev", color="year", markers=True,
                color_discrete_sequence=px.colors.qualitative.Set2)
 figy.update_xaxes(dtick=1)
 plot(figy, "연도별 월간 거래액 비교 (YoY)", height=360)
-insight("2023년 전체 → 2024년은 <b>7월부터</b>만 데이터가 있습니다(상반기 공백). "
-        "공백 구간은 선이 끊겨 표시됩니다.", "")
+insight("연도가 표기되지 않은 일자는 제외했습니다. "
+        "<b>2024년은 7월부터</b> 데이터가 있어 상반기가 비어 보입니다.", "")
 
 # 매출 피크일 — 그날을 견인한 브랜드·상품
 st.markdown('<div style="font-weight:700;font-size:15px;margin:14px 0 4px">'

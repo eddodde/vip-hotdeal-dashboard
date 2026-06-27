@@ -64,24 +64,24 @@ $nrow = $ws.Cells.Item($ws.Rows.Count, 3).End(-4162).Row   # xlUp on col3(영역
 $data = $ws.Range($ws.Cells.Item(1, 1), $ws.Cells.Item($nrow, 22)).Value2
 $wb.Close($false)
 
-# Total 행(일자 보유) 수집 후 연도 역산 (일자 포맷 M/D → 후반 YY/MM/DD 혼재)
-$tot = New-Object System.Collections.ArrayList
+# Total 행(일자 보유) → 날짜. 연도 없는 M/D 행은 제외(해당 일자 그룹 무효화).
+$rowDate = @{}
+$firstDate = $null; $lastDate = $null; $nDays = 0
 for ($r = 2; $r -le $nrow; $r++) {
   $v = [string]$data[$r, 1]; if ($v.Trim() -eq '') { continue }
-  if ($v -match '^(\d+)/(\d+)/(\d+)') { $null = $tot.Add([pscustomobject]@{ r = $r; m = [int]$Matches[2]; d = [int]$Matches[3]; y = 2000 + [int]$Matches[1] }) }
-  elseif ($v -match '^(\d+)/(\d+)') { $null = $tot.Add([pscustomobject]@{ r = $r; m = [int]$Matches[1]; d = [int]$Matches[2]; y = $null }) }
+  if ($v -match '^(\d+)/(\d+)/(\d+)') {
+    $rowDate[$r] = ("{0:0000}-{1:00}-{2:00}" -f (2000 + [int]$Matches[1]), [int]$Matches[2], [int]$Matches[3])
+    if ($null -eq $firstDate) { $firstDate = $rowDate[$r] }; $lastDate = $rowDate[$r]; $nDays++
+  }
+  elseif ($v -match '^(\d+)/(\d+)') { $rowDate[$r] = $null }   # 연도 없음 → 제외
 }
-$k = 0; while ($k -lt $tot.Count -and $null -eq $tot[$k].y) { $k++ }
-for ($i = $k - 1; $i -ge 0; $i--) { $ny = $tot[$i + 1].y; if ($tot[$i].m -gt $tot[$i + 1].m) { $ny-- }; $tot[$i].y = $ny }
-for ($i = $k + 1; $i -lt $tot.Count; $i++) { if ($null -eq $tot[$i].y) { $ny = $tot[$i - 1].y; if ($tot[$i].m -lt $tot[$i - 1].m) { $ny++ }; $tot[$i].y = $ny } }
-$rowDate = @{}
-foreach ($t in $tot) { $rowDate[$t.r] = ("{0:0000}-{1:00}-{2:00}" -f $t.y, $t.m, $t.d) }
 
 $sb = New-Object System.Text.StringBuilder
 [void]$sb.AppendLine("date,slot,row_type,prodcode,prodname,md,bpu,brand,category,UV,PV,cust,ord,qty,rev,h_UV,h_PV,h_cust,h_ord,h_qty,h_rev")
 $curDate = $null
 for ($r = 2; $r -le $nrow; $r++) {
   if ($rowDate.ContainsKey($r)) { $curDate = $rowDate[$r] }
+  if ($null -eq $curDate) { continue }                        # 연도 없는 그룹/첫 일자 이전 제외
   $detail = [string]$data[$r, 3]; if ($detail.Trim() -eq '') { continue }
   if ($detail -eq 'Total') { $slot = 'Total'; $rtype = 'TOTAL' }
   elseif ($detail -match '오전') { $slot = '오전'; $rtype = 'SLOT' }
@@ -92,7 +92,7 @@ for ($r = 2; $r -le $nrow; $r++) {
   [void]$sb.AppendLine(($vals -join ','))
 }
 [System.IO.File]::WriteAllText((Join-Path $dataDir "hotdeal.csv"), $sb.ToString(), $enc)
-Write-Host ("  ✓ hotdeal.csv  ({0} ~ {1}, {2}일)" -f $rowDate[$tot[0].r], $rowDate[$tot[-1].r], $tot.Count)
+Write-Host ("  ✓ hotdeal.csv  ({0} ~ {1}, {2}일, 연도없는 일자 제외)" -f $firstDate, $lastDate, $nDays)
 
 $excel.Quit()
 [System.Runtime.Interopservices.Marshal]::ReleaseComObject($excel) | Out-Null
