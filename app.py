@@ -416,6 +416,11 @@ with st.sidebar:
     d0, d1 = dr if isinstance(dr, tuple) and len(dr) == 2 else (default_start, dmax)
     freq = st.radio("집계 단위", list(FREQ.keys()), index=1, horizontal=True)
     sel_slots = st.multiselect("슬롯", ["오전", "오후"], default=["오전", "오후"])
+    rev_basis = st.radio(
+        "💳 매출 기준", ["핫딜 직접 (VIP핫딜 경유)", "상품 전체"], index=0,
+        help="핫딜 직접 = VIP핫딜 영역을 경유해 구매한 어트리뷰션 실적. "
+             "상품 전체 = 그 핫딜 상품의 전체 거래액(다른 경로 포함). "
+             "거래액·주문·수량·고객수가 이 기준으로 바뀝니다.")
 
     st.divider()
     st.markdown("**📂 분석 메뉴**")
@@ -463,27 +468,51 @@ section("핵심 요약",
         f"({p_d0.date()} ~ {p_d1.date()}) 대비입니다",
         anchor="sec-core")
 
-cur = dict(rev=FS["rev"].sum(), ord=FS["ord"].sum(), qty=FS["qty"].sum())
-prev = dict(rev=PS["rev"].sum(), ord=PS["ord"].sum(), qty=PS["qty"].sum())
+# 직접(h_)·전체(plain) 둘 다 — 카드는 항상 둘 다 보여줌
+rev_h, rev_t = FS["h_rev"].sum(), FS["rev"].sum()
+prv_h, prv_t = PS["h_rev"].sum(), PS["rev"].sum()
+ord_h, prv_oh = FS["h_ord"].sum(), PS["h_ord"].sum()
 uv_sum = FT["UV"].sum()
-conv = (cur["ord"] / uv_sum * 100) if uv_sum else 0
-aov = (cur["rev"] / cur["ord"]) if cur["ord"] else 0
+attr = (rev_h / rev_t * 100) if rev_t else 0
+conv_h = (ord_h / uv_sum * 100) if uv_sum else 0
+aov_h = (rev_h / ord_h) if ord_h else 0
 
 c1, c2, c3, c4, c5 = st.columns(5)
 with c1:
-    metric_card("거래액 (VAT제외)", fwon(cur["rev"]),
-                f"직전 대비 {fdelta(cur['rev'], prev['rev'])}")
+    metric_card("핫딜 직접 거래액", fwon(rev_h),
+                f"VIP핫딜 경유 · 직전 {fdelta(rev_h, prv_h)}", color="#E45756")
 with c2:
-    metric_card("주문 건수", fnum(cur["ord"]),
-                f"직전 대비 {fdelta(cur['ord'], prev['ord'])}")
+    metric_card("상품 전체 거래액", fwon(rev_t),
+                f"다른 경로 포함 · 직전 {fdelta(rev_t, prv_t)}", color="#4C72B0")
 with c3:
-    metric_card("주문 수량", fnum(cur["qty"]),
-                f"직전 대비 {fdelta(cur['qty'], prev['qty'])}")
+    metric_card("어트리뷰션율", f"{attr:.0f}%", "직접 ÷ 전체 (영역 기여도)", color="#8E44AD")
 with c4:
-    metric_card("핫딜 UV", fnum(uv_sum), "페이지 방문(중복 제거 일합)")
+    metric_card("핫딜 직접 주문", fnum(ord_h),
+                f"객단가 {fwon(aov_h)}원 · 직전 {fdelta(ord_h, prv_oh)}", color="#E45756")
 with c5:
-    metric_card("전환율 · 객단가", f"{conv:.2f}%",
-                f"객단가 {fwon(aov)}원")
+    metric_card("핫딜 UV · 전환율", fnum(uv_sum),
+                f"전환율(직접) {conv_h:.2f}%")
+
+# ── 전역 매출 기준 적용 (이후 모든 섹션) ────────────────────
+BASIS_H = rev_basis.startswith("핫딜")
+basis_label = "핫딜 직접 (VIP핫딜 경유)" if BASIS_H else "상품 전체"
+FS["_rev_total"], FS["_rev_direct"] = FS["rev"], FS["h_rev"]   # 상세표용 보존
+
+
+def apply_basis(df):
+    if BASIS_H:
+        for c in ("rev", "ord", "qty", "cust"):
+            df[c] = df["h_" + c]
+    return df
+
+
+apply_basis(FS)
+apply_basis(SLOTS)
+st.markdown(
+    f'<div style="background:#fff4f3;border:1px solid #f3d5d2;border-radius:8px;'
+    f'padding:8px 14px;margin:4px 0 6px;font-size:13px">💳 아래 모든 매출 지표 기준: '
+    f'<b>{basis_label}</b> &nbsp;— 사이드바 <b>매출 기준</b>에서 변경</div>',
+    unsafe_allow_html=True)
 
 rev_d = resample(daily(FS, "rev"), freq)
 word, chg = trend_word(rev_d)
@@ -492,11 +521,10 @@ top_brand = top_brand[top_brand.index != ""]
 tb_name = top_brand.index[0] if len(top_brand) else "—"
 tb_share = (top_brand.iloc[0] / FS["rev"].sum() * 100) if len(top_brand) and FS["rev"].sum() else 0
 insight(
-    f"선택 기간 거래액 <b>{fwon(cur['rev'])}원</b> · 주문 <b>{fnum(cur['ord'])}건</b>, "
-    f"직전 동기간 대비 거래액 {fdelta(cur['rev'], prev['rev'])}. "
-    f"{freq} 매출 추세는 <b>{word}</b>(기간 내 {chg:+.0f}%). "
-    f"매출 1위 브랜드는 <b>{tb_name}</b>(거래액의 {tb_share:.0f}%). "
-    f"전환율 {conv:.2f}%, 객단가 {fwon(aov)}원.",
+    f"<b>핫딜 직접 거래액 {fwon(rev_h)}원</b>(영역 기여 {attr:.0f}%) · "
+    f"상품 전체 {fwon(rev_t)}원. "
+    f"현재 ‘{basis_label}’ 기준 {freq} 매출 추세는 <b>{word}</b>(기간 내 {chg:+.0f}%), "
+    f"1위 브랜드 <b>{tb_name}</b>(거래액의 {tb_share:.0f}%).",
     "warn" if chg < -5 else ("ok" if chg > 5 else ""))
 
 # ════════════════════════════════════════════════════════════
@@ -570,24 +598,30 @@ insight(f"{gran} 중 일평균 거래액이 가장 높은 구간은 <b>{best_p}<
 # ════════════════════════════════════════════════════════════
 # 1. 매출 추세
 # ════════════════════════════════════════════════════════════
-section("매출 추세 + 피크일", f"{freq} 거래액·주문 추이 (7기간 이동평균 보조선)", anchor="sec-sales")
+section("매출 추세 + 피크일",
+        f"{freq} 거래액 추이 — <b>핫딜 직접</b>(빨강)과 <b>상품 전체</b>(파랑)를 함께 표시",
+        anchor="sec-sales")
 
-rev_s = resample(daily(FS, "rev"), freq)
+tot_s = resample(daily(FS, "_rev_total"), freq)
+dir_s = resample(daily(FS, "_rev_direct"), freq)
 ord_s = resample(daily(FS, "ord"), freq)
-ma = rev_s.rolling(7, min_periods=2).mean()
 
 fig = go.Figure()
-fig.add_trace(go.Scatter(x=rev_s.index, y=rev_s.values, name="거래액",
+fig.add_trace(go.Scatter(x=tot_s.index, y=tot_s.values, name="상품 전체 거래액",
+                         mode="lines", line=dict(color="#4C72B0", width=2)))
+fig.add_trace(go.Scatter(x=dir_s.index, y=dir_s.values, name="핫딜 직접 거래액",
                          mode="lines+markers", line=dict(color=ACCENT, width=2.4),
                          marker=dict(size=4)))
-fig.add_trace(go.Scatter(x=ma.index, y=ma.values, name="거래액 이동평균",
-                         line=dict(color="#922B21", width=1.5, dash="dash"), opacity=0.7))
-fig.add_trace(go.Scatter(x=ord_s.index, y=ord_s.values, name="주문 건수",
-                         yaxis="y2", line=dict(color="#4C72B0", width=1.5, dash="dot")))
+fig.add_trace(go.Scatter(x=ord_s.index, y=ord_s.values, name=f"주문({basis_label.split()[0]})",
+                         yaxis="y2", line=dict(color="#999", width=1.2, dash="dot")))
 fig.update_layout(
     yaxis=dict(title="거래액(원)"),
     yaxis2=dict(title="주문", overlaying="y", side="right", showgrid=False))
 plot(fig, height=420)
+if dir_s.notna().any() and tot_s.sum():
+    insight(f"두 선의 간격(파랑−빨강)이 <b>핫딜 영역을 거치지 않은 매출</b>"
+            f"(라운지에서 보고 나중에 재유입 구매 등)입니다. "
+            f"선택 기간 평균 어트리뷰션율 {dir_s.sum()/tot_s.sum()*100:.0f}%.")
 
 # 연도(YoY) 비교 — 월별 거래액
 yoy = SLOTS.copy()
@@ -812,17 +846,22 @@ insight(f"기간 합계 거래액은 <b>{lead}</b>이 우위 "
 # ════════════════════════════════════════════════════════════
 # 7. 상세 데이터
 # ════════════════════════════════════════════════════════════
-section("상세 데이터", "필터된 슬롯·상품 단위 원본 (CSV 다운로드 가능)", anchor="sec-table")
+section("상세 데이터", "필터된 슬롯·상품 단위 원본 — 거래액은 전체·직접 둘 다 표기 (CSV 다운로드 가능)",
+        anchor="sec-table")
 
+tbl = FS.copy()
+tbl["거래액_전체"] = tbl["_rev_total"].round()
+tbl["거래액_직접"] = tbl["_rev_direct"].round()
 cols = ["date", "slot", "brand", "category", "prodname", "md_name",
-        "UV", "PV", "ord", "qty", "rev"]
-tbl = FS[cols].sort_values("date", ascending=False)
+        "UV", "PV", "ord", "거래액_전체", "거래액_직접"]
+tbl = tbl[cols].sort_values("date", ascending=False)
 st.dataframe(tbl, use_container_width=True, height=420)
 st.download_button("⬇️ CSV 다운로드", tbl.to_csv(index=False).encode("utf-8-sig"),
                    file_name=f"vip_hotdeal_{d0.date()}_{d1.date()}.csv", mime="text/csv")
 
-st.caption("ℹ️ 거래액은 VAT 제외 금액이며 원 단위 분수값일 수 있습니다(가격/1.1 등). "
-           "UV/PV는 페이지 총계(중복 제거), 매출·주문은 슬롯 합산입니다.")
+st.caption("ℹ️ 거래액_전체 = 상품 전체 거래액, 거래액_직접 = VIP핫딜 영역 경유(어트리뷰션). "
+           "VAT 제외·원 단위 분수값일 수 있음. UV/PV는 페이지 총계(중복 제거), 매출·주문은 슬롯 합산. "
+           "주문(ord)은 현재 선택한 ‘매출 기준’을 따릅니다.")
 
 # ── 사이드바 nav 부드러운 스크롤 ────────────────────────────
 components.html("""
