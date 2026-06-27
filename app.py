@@ -235,13 +235,12 @@ def won(x):
 
 
 def sgn(x, suffix="%", digits=1):
-    """증감 표기(내부 규칙): 양수=녹색 ▲, 음수=빨강 △(빈 세모)."""
+    """증감 표기(내부 규칙): 양수=세모 없이 녹색 숫자, 음수=빨강 △(빈 세모)."""
     if x is None or pd.isna(x):
         return '<span style="color:#999">—</span>'
-    v = f"{abs(x):.{digits}f}{suffix}"
     if x >= 0:
-        return f'<span style="color:#2E7D32">▲ {v}</span>'
-    return f'<span style="color:#C44E52">△ {v}</span>'
+        return f'<span style="color:#2E7D32">{x:.{digits}f}{suffix}</span>'
+    return f'<span style="color:#C44E52">△ {abs(x):.{digits}f}{suffix}</span>'
 
 
 def fdelta(cur, prev):
@@ -464,7 +463,7 @@ section("핵심 요약",
         f"선택 기간 {d0.date()} ~ {d1.date()} ({period_days}일, 운영 {n_active}일) · "
         f"모든 거래액은 <b>일평균(운영일 1일당)</b> 기준 — 기간 길이 달라도 비교 가능. "
         f"증감은 직전 같은 길이 기간({p_d0.date()} ~ {p_d1.date()}) 대비 "
-        f"(<span style='color:#2E7D32'>▲ 증가</span> · <span style='color:#C44E52'>△ 감소</span>)",
+        f"(<span style='color:#2E7D32'>증가</span> · <span style='color:#C44E52'>△ 감소</span>)",
         anchor="sec-core")
 
 # 기본 지표 = 일평균(운영일 평균). 누적은 기간 길이가 달라 비교 불가하므로.
