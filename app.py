@@ -234,14 +234,21 @@ def won(x):
     return "—" if pd.isna(x) else f"{round(float(x)):,}"
 
 
+def sgn(x, suffix="%", digits=1):
+    """증감 표기(내부 규칙): 양수=녹색 ▲, 음수=빨강 △(빈 세모)."""
+    if x is None or pd.isna(x):
+        return '<span style="color:#999">—</span>'
+    v = f"{abs(x):.{digits}f}{suffix}"
+    if x >= 0:
+        return f'<span style="color:#2E7D32">▲ {v}</span>'
+    return f'<span style="color:#C44E52">△ {v}</span>'
+
+
 def fdelta(cur, prev):
     """직전 동일길이 기간 대비 증감률 HTML."""
     if prev in (0, None) or pd.isna(prev):
         return '<span style="color:#999">—</span>'
-    chg = (cur - prev) / prev * 100
-    if chg >= 0:
-        return f'<span style="color:#2E7D32">▲ {chg:.1f}%</span>'
-    return f'<span style="color:#C44E52">▼ {abs(chg):.1f}%</span>'
+    return sgn((cur - prev) / prev * 100, "%", 1)
 
 
 def metric_card(label, value, sub="", color=ACCENT):
@@ -337,12 +344,7 @@ def pct(cur, prev):
 def cmp_card(title, label_cur, cur, label_prev, prev):
     """비교 카드: 현재 vs 비교 기간 일평균 + 증감%."""
     p = pct(cur, prev)
-    if p is None:
-        delta = '<span style="color:#999">비교 데이터 없음</span>'
-    elif p >= 0:
-        delta = f'<span style="color:#2E7D32">▲ {p:.1f}%</span>'
-    else:
-        delta = f'<span style="color:#C44E52">▼ {abs(p):.1f}%</span>'
+    delta = '<span style="color:#999">비교 데이터 없음</span>' if p is None else sgn(p, "%", 1)
     cv = won(cur)
     pv = "—" if prev is None else won(prev)
     metric_card(title, f"{cv}원 &nbsp;{delta}",
@@ -461,7 +463,8 @@ PS = SLOTS[pmask]
 section("핵심 요약",
         f"선택 기간 {d0.date()} ~ {d1.date()} ({period_days}일, 운영 {n_active}일) · "
         f"모든 거래액은 <b>일평균(운영일 1일당)</b> 기준 — 기간 길이 달라도 비교 가능. "
-        f"증감(▲▼)은 직전 같은 길이 기간({p_d0.date()} ~ {p_d1.date()}) 대비",
+        f"증감은 직전 같은 길이 기간({p_d0.date()} ~ {p_d1.date()}) 대비 "
+        f"(<span style='color:#2E7D32'>▲ 증가</span> · <span style='color:#C44E52'>△ 감소</span>)",
         anchor="sec-core")
 
 # 기본 지표 = 일평균(운영일 평균). 누적은 기간 길이가 달라 비교 불가하므로.
@@ -524,7 +527,7 @@ tb_share = (top_brand.iloc[0] / FS["rev"].sum() * 100) if len(top_brand) and FS[
 insight(
     f"<b>핫딜 직접 일평균 {won(adir)}원/일</b>(영역 기여 {attr:.0f}%) · "
     f"상품 전체 일평균 {won(atot)}원/일. "
-    f"현재 ‘{basis_label}’ 기준 {freq} 일평균 추세는 <b>{word}</b>(기간 내 {chg:+.0f}%), "
+    f"현재 ‘{basis_label}’ 기준 {freq} 일평균 추세는 <b>{word}</b>(기간 내 {sgn(chg, '%', 0)}), "
     f"1위 브랜드 <b>{tb_name}</b>(거래액의 {tb_share:.0f}%).",
     "warn" if chg < -5 else ("ok" if chg > 5 else ""))
 
@@ -561,11 +564,11 @@ with cc3:
 
 bits = []
 if pct(cur_w[0], prev_w[0]) is not None:
-    bits.append(f"전주 대비 일평균 {won(cur_w[0])}원 ({pct(cur_w[0], prev_w[0]):+.0f}%)")
+    bits.append(f"전주 대비 일평균 {won(cur_w[0])}원 ({sgn(pct(cur_w[0], prev_w[0]), '%', 0)})")
 if pct(cur_m[0], prev_m[0]) is not None:
-    bits.append(f"전월 대비 {pct(cur_m[0], prev_m[0]):+.0f}%")
+    bits.append(f"전월 대비 {sgn(pct(cur_m[0], prev_m[0]), '%', 0)}")
 if pct(cur_m[0], prev_y[0]) is not None:
-    bits.append(f"전년 동월 대비 {pct(cur_m[0], prev_y[0]):+.0f}%")
+    bits.append(f"전년 동월 대비 {sgn(pct(cur_m[0], prev_y[0]), '%', 0)}")
 else:
     bits.append("전년 동월 데이터가 없어 전년비는 비교 불가")
 insight("최신 기준 " + " · ".join(bits) + ". "
@@ -587,11 +590,11 @@ with ac1:
     metric_card(f"이번 달 ({ref.month}월)", "—" if pd.isna(a_cur) else f"{a_cur:.0f}%",
                 "VIP핫딜 영역 기여도", color="#8E44AD")
 with ac2:
-    dd = "" if (pd.isna(a_cur) or pd.isna(a_pm)) else f"({a_cur - a_pm:+.0f}p)"
+    dd = "" if (pd.isna(a_cur) or pd.isna(a_pm)) else f"({sgn(a_cur - a_pm, 'p', 0)})"
     metric_card("전월 대비", "—" if pd.isna(a_pm) else f"{a_pm:.0f}%", f"지난달 → 이번달 {dd}",
                 color="#8E44AD")
 with ac3:
-    dd = "" if (pd.isna(a_cur) or pd.isna(a_py)) else f"({a_cur - a_py:+.0f}p)"
+    dd = "" if (pd.isna(a_cur) or pd.isna(a_py)) else f"({sgn(a_cur - a_py, 'p', 0)})"
     metric_card("전년 동월 대비", "—" if pd.isna(a_py) else f"{a_py:.0f}%",
                 f"{ly_start.year}.{ly_start.month:02d} → 올해 {dd}", color="#8E44AD")
 
@@ -610,7 +613,7 @@ figa.update_xaxes(dtick=1)
 plot(figa, "월별 어트리뷰션율 (연도 비교)", height=340)
 if not pd.isna(a_cur) and not pd.isna(a_py):
     insight(f"이번 달 어트리뷰션율 <b>{a_cur:.0f}%</b> — 전년 동월({a_py:.0f}%) 대비 "
-            f"<b>{a_cur - a_py:+.0f}p</b>. 이 비율이 오르면 핫딜 영역이 매출을 직접 더 많이 "
+            f"{sgn(a_cur - a_py, 'p', 0)}. 이 비율이 오르면 핫딜 영역이 매출을 직접 더 많이 "
             "끌고 있다는 뜻이고, 내리면 ‘보고 나중에 구매’ 비중이 커진 것입니다.")
 
 # ════════════════════════════════════════════════════════════
@@ -799,7 +802,7 @@ with cc2:
 
 cw, cchg = trend_word(conv_s)
 aw, achg = trend_word(aov_s)
-insight(f"전환율 추세 <b>{cw}</b>({cchg:+.0f}%) · 객단가 추세 <b>{aw}</b>({achg:+.0f}%). "
+insight(f"전환율 추세 <b>{cw}</b>({sgn(cchg, '%', 0)}) · 객단가 추세 <b>{aw}</b>({sgn(achg, '%', 0)}). "
         f"전환율은 페이지 총 UV 기준이라 슬롯 필터의 영향을 받지 않습니다.")
 
 # ════════════════════════════════════════════════════════════
