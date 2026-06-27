@@ -460,33 +460,37 @@ PS = SLOTS[pmask]
 # ════════════════════════════════════════════════════════════
 section("핵심 요약",
         f"선택 기간 {d0.date()} ~ {d1.date()} ({period_days}일, 운영 {n_active}일) · "
-        f"카드의 증감(▲▼)은 <b>바로 직전 같은 길이 기간</b>"
-        f"({p_d0.date()} ~ {p_d1.date()}) 대비입니다",
+        f"모든 거래액은 <b>일평균(운영일 1일당)</b> 기준 — 기간 길이 달라도 비교 가능. "
+        f"증감(▲▼)은 직전 같은 길이 기간({p_d0.date()} ~ {p_d1.date()}) 대비",
         anchor="sec-core")
 
-# 직접(h_)·전체(plain) 둘 다 — 카드는 항상 둘 다 보여줌
+# 기본 지표 = 일평균(운영일 평균). 누적은 기간 길이가 달라 비교 불가하므로.
+nd = max(FS["date"].nunique(), 1)          # 선택 기간 운영일수
+pnd = max(PS["date"].nunique(), 1)         # 직전 기간 운영일수
 rev_h, rev_t = FS["h_rev"].sum(), FS["rev"].sum()
-prv_h, prv_t = PS["h_rev"].sum(), PS["rev"].sum()
-ord_h, prv_oh = FS["h_ord"].sum(), PS["h_ord"].sum()
-uv_sum = FT["UV"].sum()
+adir, atot = rev_h / nd, rev_t / nd                        # 일평균 직접·전체
+adir_p, atot_p = PS["h_rev"].sum() / pnd, PS["rev"].sum() / pnd
+ord_h = FS["h_ord"].sum()
+aord, aord_p = ord_h / nd, PS["h_ord"].sum() / pnd          # 일평균 주문
+uv_avg = FT["UV"].sum() / nd                               # 일평균 UV
 attr = (rev_h / rev_t * 100) if rev_t else 0
-conv_h = (ord_h / uv_sum * 100) if uv_sum else 0
+conv_h = (ord_h / FT["UV"].sum() * 100) if FT["UV"].sum() else 0
 aov_h = (rev_h / ord_h) if ord_h else 0
 
 c1, c2, c3, c4, c5 = st.columns(5)
 with c1:
-    metric_card("핫딜 직접 거래액", f"{won(rev_h)}원",
-                f"VIP핫딜 경유 · 직전 {fdelta(rev_h, prv_h)}", color="#E45756")
+    metric_card("핫딜 직접 일평균 거래액", f"{won(adir)}원",
+                f"VIP핫딜 경유 · 직전 {fdelta(adir, adir_p)}", color="#E45756")
 with c2:
-    metric_card("상품 전체 거래액", f"{won(rev_t)}원",
-                f"다른 경로 포함 · 직전 {fdelta(rev_t, prv_t)}", color="#4C72B0")
+    metric_card("상품 전체 일평균 거래액", f"{won(atot)}원",
+                f"다른 경로 포함 · 직전 {fdelta(atot, atot_p)}", color="#4C72B0")
 with c3:
     metric_card("어트리뷰션율", f"{attr:.0f}%", "직접 ÷ 전체 (영역 기여도)", color="#8E44AD")
 with c4:
-    metric_card("핫딜 직접 주문", fnum(ord_h),
-                f"객단가 {won(aov_h)}원 · 직전 {fdelta(ord_h, prv_oh)}", color="#E45756")
+    metric_card("직접 일평균 주문", f"{aord:.1f}건",
+                f"객단가 {won(aov_h)}원 · 직전 {fdelta(aord, aord_p)}", color="#E45756")
 with c5:
-    metric_card("핫딜 UV · 전환율", fnum(uv_sum),
+    metric_card("일평균 UV · 전환율", fnum(uv_avg),
                 f"전환율(직접) {conv_h:.2f}%")
 
 # ── 전역 매출 기준 적용 (이후 모든 섹션) ────────────────────
@@ -508,19 +512,19 @@ apply_basis(SLOTS)
 st.markdown(
     f'<div style="background:#fff4f3;border:1px solid #f3d5d2;border-radius:8px;'
     f'padding:8px 14px;margin:4px 0 6px;font-size:13px">💳 아래 모든 매출 지표 기준: '
-    f'<b>{basis_label}</b> &nbsp;— 사이드바 <b>매출 기준</b>에서 변경</div>',
+    f'<b>{basis_label}</b> · 거래액은 모두 <b>일평균</b> 기준 &nbsp;— 사이드바에서 변경</div>',
     unsafe_allow_html=True)
 
-rev_d = resample(daily(FS, "rev"), freq)
+rev_d = resample(daily(FS, "rev"), freq, how="mean")
 word, chg = trend_word(rev_d)
 top_brand = (FS.groupby("brand")["rev"].sum().sort_values(ascending=False))
 top_brand = top_brand[top_brand.index != ""]
 tb_name = top_brand.index[0] if len(top_brand) else "—"
 tb_share = (top_brand.iloc[0] / FS["rev"].sum() * 100) if len(top_brand) and FS["rev"].sum() else 0
 insight(
-    f"<b>핫딜 직접 거래액 {won(rev_h)}원</b>(영역 기여 {attr:.0f}%) · "
-    f"상품 전체 {won(rev_t)}원. "
-    f"현재 ‘{basis_label}’ 기준 {freq} 매출 추세는 <b>{word}</b>(기간 내 {chg:+.0f}%), "
+    f"<b>핫딜 직접 일평균 {won(adir)}원/일</b>(영역 기여 {attr:.0f}%) · "
+    f"상품 전체 일평균 {won(atot)}원/일. "
+    f"현재 ‘{basis_label}’ 기준 {freq} 일평균 추세는 <b>{word}</b>(기간 내 {chg:+.0f}%), "
     f"1위 브랜드 <b>{tb_name}</b>(거래액의 {tb_share:.0f}%).",
     "warn" if chg < -5 else ("ok" if chg > 5 else ""))
 
@@ -639,29 +643,31 @@ insight(f"{gran} 중 일평균 거래액이 가장 높은 구간은 <b>{best_p}<
 # 1. 매출 추세
 # ════════════════════════════════════════════════════════════
 section("매출 추세 + 피크일",
-        f"{freq} 거래액 추이 — <b>핫딜 직접</b>(빨강)과 <b>상품 전체</b>(파랑)를 함께 표시",
+        f"{freq} <b>일평균 거래액</b> 추이 — <b>핫딜 직접</b>(빨강)·<b>상품 전체</b>(파랑). "
+        "기간별 일수가 달라도 비교되도록 일평균으로 표시",
         anchor="sec-sales")
 
-tot_s = resample(daily(FS, "_rev_total"), freq)
-dir_s = resample(daily(FS, "_rev_direct"), freq)
-ord_s = resample(daily(FS, "ord"), freq)
+tot_s = resample(daily(FS, "_rev_total"), freq, how="mean")
+dir_s = resample(daily(FS, "_rev_direct"), freq, how="mean")
+ord_s = resample(daily(FS, "ord"), freq, how="mean")
 
 fig = go.Figure()
-fig.add_trace(go.Scatter(x=tot_s.index, y=tot_s.values, name="상품 전체 거래액",
+fig.add_trace(go.Scatter(x=tot_s.index, y=tot_s.values, name="상품 전체 일평균",
                          mode="lines", line=dict(color="#4C72B0", width=2)))
-fig.add_trace(go.Scatter(x=dir_s.index, y=dir_s.values, name="핫딜 직접 거래액",
+fig.add_trace(go.Scatter(x=dir_s.index, y=dir_s.values, name="핫딜 직접 일평균",
                          mode="lines+markers", line=dict(color=ACCENT, width=2.4),
                          marker=dict(size=4)))
-fig.add_trace(go.Scatter(x=ord_s.index, y=ord_s.values, name=f"주문({basis_label.split()[0]})",
+fig.add_trace(go.Scatter(x=ord_s.index, y=ord_s.values, name="일평균 주문",
                          yaxis="y2", line=dict(color="#999", width=1.2, dash="dot")))
 fig.update_layout(
-    yaxis=dict(title="거래액(원)", tickformat=","),
-    yaxis2=dict(title="주문", overlaying="y", side="right", showgrid=False))
+    yaxis=dict(title="일평균 거래액(원)", tickformat=","),
+    yaxis2=dict(title="일평균 주문", overlaying="y", side="right", showgrid=False))
 plot(fig, height=420)
-if dir_s.notna().any() and tot_s.sum():
+_tt = FS["_rev_total"].sum()
+if _tt:
     insight(f"두 선의 간격(파랑−빨강)이 <b>핫딜 영역을 거치지 않은 매출</b>"
             f"(라운지에서 보고 나중에 재유입 구매 등)입니다. "
-            f"선택 기간 평균 어트리뷰션율 {dir_s.sum()/tot_s.sum()*100:.0f}%.")
+            f"선택 기간 평균 어트리뷰션율 {FS['_rev_direct'].sum()/_tt*100:.0f}%.")
 
 # 매출 피크일 — 그날을 견인한 브랜드·상품 (차트 바로 아래)
 st.markdown('<div style="font-weight:700;font-size:15px;margin:14px 0 4px">'
@@ -682,21 +688,21 @@ st.dataframe(pd.DataFrame(peak_recs), use_container_width=True, height=320, hide
 st.caption("‘당일 거래액’이 튀는 날 어떤 브랜드의 어떤 상품이 견인했는지 — "
            "비중이 높을수록 한 상품이 그날 매출을 좌우한 날입니다.")
 
-# 연도(YoY) 비교 — 월별 거래액 (2024년 이후만)
+# 연도(YoY) 비교 — 월별 일평균 거래액 (2024년 이후만)
 yoy = SLOTS.copy()
 if sel_slots:
     yoy = yoy[yoy["slot"].isin(sel_slots)]
-yoy["year"] = yoy["date"].dt.year
-yoy = yoy[yoy["year"] >= 2024]
-ym = (yoy.groupby(["year", yoy["date"].dt.month])["rev"].sum()
-      .rename_axis(["year", "month"]).reset_index())
-ym["year"] = ym["year"].astype(str)   # 이산 색상
+yoy = yoy[yoy["date"].dt.year >= 2024]
+dly = yoy.groupby("date")["rev"].sum().reset_index()      # 일별 총
+dly["year"] = dly["date"].dt.year.astype(str)
+dly["month"] = dly["date"].dt.month
+ym = dly.groupby(["year", "month"])["rev"].mean().reset_index()   # 월별 일평균
 figy = px.line(ym, x="month", y="rev", color="year", markers=True,
-               labels={"month": "월", "rev": "거래액(원)", "year": "연도"},
+               labels={"month": "월", "rev": "일평균 거래액(원)", "year": "연도"},
                color_discrete_sequence=px.colors.qualitative.Set2)
 figy.update_xaxes(dtick=1)
 figy.update_yaxes(tickformat=",")
-plot(figy, "연도별 월간 거래액 비교 (YoY)", height=360)
+plot(figy, "연도별 월간 일평균 거래액 비교 (YoY)", height=360)
 insight("<b>2024년은 7월부터</b> 데이터가 있어 상반기가 비어 보입니다.", "")
 
 # ════════════════════════════════════════════════════════════
@@ -807,7 +813,7 @@ bc1, bc2, bc3 = st.columns(3)
 with bc1:
     dim = st.radio("기준", ["상품", "브랜드", "MD", "카테고리"], horizontal=True, key="best_dim")
 with bc2:
-    basis = st.radio("정렬 지표", ["거래액 합계", "일평균 거래액"], horizontal=True, key="best_basis")
+    basis = st.radio("정렬 지표", ["일평균 거래액", "거래액 합계"], horizontal=True, key="best_basis")
 with bc3:
     order = st.radio("순서", ["상위 TOP", "하위 BOTTOM"], horizontal=True, key="best_order")
 DIMCOL = {"상품": "prodname", "브랜드": "brand", "MD": "md_name", "카테고리": "category"}[dim]
@@ -865,10 +871,11 @@ sc1, sc2 = st.columns([2, 1])
 with sc1:
     fig = go.Figure()
     for sl in ["오전", "오후"]:
-        s = resample(base[base["slot"] == sl].groupby("date")["rev"].sum(), freq)
+        s = resample(base[base["slot"] == sl].groupby("date")["rev"].sum(), freq, how="mean")
         fig.add_trace(go.Scatter(x=s.index, y=s.values, name=sl,
                                  line=dict(color=SLOT_COLOR[sl], width=2)))
-    plot(fig, f"슬롯별 거래액 ({freq})", height=340)
+    fig.update_yaxes(tickformat=",")
+    plot(fig, f"슬롯별 일평균 거래액 ({freq})", height=340)
 with sc2:
     sl_sum = base.groupby("slot")["rev"].sum().reindex(["오전", "오후"]).fillna(0)
     fig = px.pie(values=sl_sum.values, names=sl_sum.index, hole=0.5,
