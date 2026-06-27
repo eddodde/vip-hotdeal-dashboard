@@ -23,6 +23,8 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
+DOW = ["월", "화", "수", "목", "금", "토", "일"]   # 요일 (Mon=0)
+
 # 콘텐츠 영역(트래픽 비교용) & 색
 AREAS = ["VIP핫딜", "VIP라운지", "기념일", "기획전영역"]
 AREA_COLOR = {"VIP핫딜": "#E45756", "VIP라운지": "#4C72B0",
@@ -304,6 +306,53 @@ def trend_word(s):
     return word, chg
 
 
+def period_key(dates, gran):
+    """일 인덱스 → 기간 라벨 Series. gran ∈ {연도, 월, 주차}."""
+    if gran == "연도":
+        return dates.year.astype(str)
+    if gran == "월":
+        return dates.to_period("M").astype(str)            # 2026-06
+    iso = dates.isocalendar()
+    return iso["year"].astype(str) + "-W" + iso["week"].astype(str).str.zfill(2)
+
+
+def avg_daily_rev(daily_tot, gran):
+    """일별 거래액 합 → 기간별 '일평균 거래액'(운영일 평균) + 운영일수."""
+    k = period_key(daily_tot.index, gran)
+    g = daily_tot.groupby(k.values)
+    out = pd.DataFrame({"일평균": g.mean(), "합계": g.sum(), "운영일": g.size()})
+    return out.sort_index()
+
+
+def daterange_stats(df, start, end):
+    """[start, end] 구간의 (일평균 거래액, 운영일수, 합계)."""
+    d = df[(df["date"] >= start) & (df["date"] <= end)]
+    days = d["date"].nunique()
+    rev = d["rev"].sum()
+    return (rev / days if days else np.nan), days, rev
+
+
+def pct(cur, prev):
+    if prev in (0, None) or pd.isna(prev) or pd.isna(cur):
+        return None
+    return (cur - prev) / prev * 100
+
+
+def cmp_card(title, label_cur, cur, label_prev, prev):
+    """비교 카드: 현재 vs 비교 기간 일평균 + 증감%."""
+    p = pct(cur, prev)
+    if p is None:
+        delta = '<span style="color:#999">비교 데이터 없음</span>'
+    elif p >= 0:
+        delta = f'<span style="color:#2E7D32">▲ {p:.1f}%</span>'
+    else:
+        delta = f'<span style="color:#C44E52">▼ {abs(p):.1f}%</span>'
+    cv = "—" if pd.isna(cur) else fwon(cur)
+    pv = "—" if (prev is None or pd.isna(prev)) else fwon(prev)
+    metric_card(title, f"{cv}원 &nbsp;{delta}",
+                f"{label_cur} 일평균 · {label_prev} {pv}원")
+
+
 # ── 사이드바: 데이터 업로드 → 로드 ──────────────────────────
 with st.sidebar:
     st.header("⚙️ 설정")
@@ -345,7 +394,10 @@ st.caption("VIP라운지 핫딜 콘텐츠의 매출·트래픽·전환을 기간
 
 MENU = [
     ("sec-core", "🔑 핵심 요약"),
-    ("sec-sales", "💰 매출 추세"),
+    ("sec-compare", "🔁 전년·전월·전주 비교"),
+    ("sec-avg", "📊 일평균 거래액 (연/월/주)"),
+    ("sec-sales", "💰 매출 추세 + 피크일"),
+    ("sec-dow", "📅 요일별 분석"),
     ("sec-traffic", "🚦 트래픽 추세"),
     ("sec-conv", "🎯 전환·효율"),
     ("sec-best", "🏆 베스트 (상품·브랜드·MD)"),
@@ -406,8 +458,9 @@ PS = SLOTS[pmask]
 # 0. 핵심 요약
 # ════════════════════════════════════════════════════════════
 section("핵심 요약",
-        f"기간 {d0.date()} ~ {d1.date()} ({period_days}일, 운영 {n_active}일) · "
-        f"직전 {period_days}일 대비",
+        f"선택 기간 {d0.date()} ~ {d1.date()} ({period_days}일, 운영 {n_active}일) · "
+        f"카드의 증감(▲▼)은 <b>바로 직전 같은 길이 기간</b>"
+        f"({p_d0.date()} ~ {p_d1.date()}) 대비입니다",
         anchor="sec-core")
 
 cur = dict(rev=FS["rev"].sum(), ord=FS["ord"].sum(), qty=FS["qty"].sum())
@@ -447,9 +500,77 @@ insight(
     "warn" if chg < -5 else ("ok" if chg > 5 else ""))
 
 # ════════════════════════════════════════════════════════════
+#    전년·전월·전주 비교  (최신 데이터 기준, 일평균 거래액)
+# ════════════════════════════════════════════════════════════
+ref = SLOTS["date"].max()          # 전체 데이터 최신일 (필터 무관)
+section("전년·전월·전주 비교",
+        f"가장 최근 데이터({ref.date()}) 기준 · 기간 길이가 달라 <b>일평균 거래액</b>으로 비교합니다",
+        anchor="sec-compare")
+
+# 주 단위(ISO): 이번 주 vs 지난 주
+wk_start = ref - pd.Timedelta(days=int(ref.weekday()))
+cur_w = daterange_stats(SLOTS, wk_start, ref)
+prev_w = daterange_stats(SLOTS, wk_start - pd.Timedelta(days=7), wk_start - pd.Timedelta(days=1))
+# 월 단위: 이번 달 vs 지난 달 vs 작년 같은 달
+m_start = ref.replace(day=1)
+cur_m = daterange_stats(SLOTS, m_start, ref)
+pm_end = m_start - pd.Timedelta(days=1)
+prev_m = daterange_stats(SLOTS, pm_end.replace(day=1), pm_end)
+ly_start = m_start.replace(year=m_start.year - 1)
+ly_end = ly_start + (ref - m_start)          # 작년 같은 달의 같은 일수 구간
+prev_y = daterange_stats(SLOTS, ly_start, ly_end)
+
+cc1, cc2, cc3 = st.columns(3)
+with cc1:
+    cmp_card("전주 대비", f"이번 주({wk_start.date().strftime('%m/%d')}~)",
+             cur_w[0], "지난 주", prev_w[0])
+with cc2:
+    cmp_card("전월 대비", f"{ref.month}월", cur_m[0], f"{pm_end.month}월", prev_m[0])
+with cc3:
+    cmp_card("전년 대비", f"{ref.year}.{ref.month:02d}", cur_m[0],
+             f"{ly_start.year}.{ly_start.month:02d}", prev_y[0])
+
+bits = []
+if pct(cur_w[0], prev_w[0]) is not None:
+    bits.append(f"전주 대비 일평균 {fwon(cur_w[0])}원 ({pct(cur_w[0], prev_w[0]):+.0f}%)")
+if pct(cur_m[0], prev_m[0]) is not None:
+    bits.append(f"전월 대비 {pct(cur_m[0], prev_m[0]):+.0f}%")
+if pct(cur_m[0], prev_y[0]) is not None:
+    bits.append(f"전년 동월 대비 {pct(cur_m[0], prev_y[0]):+.0f}%")
+else:
+    bits.append("전년 동월은 데이터 공백(2024 상반기 등)으로 비교 불가일 수 있음")
+insight("최신 기준 " + " · ".join(bits) + ". "
+        "이번 주/달은 <b>진행 중</b>이라 일평균(운영일 평균)으로 비교합니다.")
+
+# ════════════════════════════════════════════════════════════
+#    일평균 거래액 (연 / 월 / 주차)
+# ════════════════════════════════════════════════════════════
+section("일평균 거래액", "기간마다 운영일수가 다르므로 <b>운영일 1일당 평균 거래액</b>으로 봅니다 "
+        "(선택 기간·슬롯 필터 적용)", anchor="sec-avg")
+
+gran = st.radio("집계 단위", ["연도", "월", "주차"], index=1, horizontal=True, key="avg_gran")
+ad = avg_daily_rev(daily(FS, "rev"), gran)
+fig = go.Figure()
+fig.add_bar(x=ad.index, y=ad["일평균"], marker_color=ACCENT,
+            customdata=np.stack([ad["운영일"], ad["합계"]], axis=-1),
+            hovertemplate="%{x}<br>일평균 %{y:,.0f}원<br>운영 %{customdata[0]}일"
+                          "<br>합계 %{customdata[1]:,.0f}원<extra></extra>")
+avg_ma = ad["일평균"].rolling(3, min_periods=1).mean()
+fig.add_trace(go.Scatter(x=ad.index, y=avg_ma, name="추세(3기간 평균)",
+                         line=dict(color="#922B21", width=1.5, dash="dash")))
+fig.update_layout(yaxis_title="일평균 거래액(원)", xaxis_title=gran, showlegend=False)
+plot(fig, f"{gran}별 일평균 거래액", height=380)
+
+best_p = ad["일평균"].idxmax()
+worst_p = ad["일평균"].idxmin()
+insight(f"{gran} 중 일평균 거래액이 가장 높은 구간은 <b>{best_p}</b>"
+        f"({fwon(ad.loc[best_p, '일평균'])}원/일), 가장 낮은 구간은 <b>{worst_p}</b>"
+        f"({fwon(ad.loc[worst_p, '일평균'])}원/일)입니다.")
+
+# ════════════════════════════════════════════════════════════
 # 1. 매출 추세
 # ════════════════════════════════════════════════════════════
-section("매출 추세", f"{freq} 거래액·주문 추이 (7기간 이동평균 보조선)", anchor="sec-sales")
+section("매출 추세 + 피크일", f"{freq} 거래액·주문 추이 (7기간 이동평균 보조선)", anchor="sec-sales")
 
 rev_s = resample(daily(FS, "rev"), freq)
 ord_s = resample(daily(FS, "ord"), freq)
@@ -483,6 +604,72 @@ figy.update_xaxes(dtick=1)
 plot(figy, "연도별 월간 거래액 비교 (YoY)", height=360)
 insight("2023년 전체 → 2024년은 <b>7월부터</b>만 데이터가 있습니다(상반기 공백). "
         "공백 구간은 선이 끊겨 표시됩니다.", "")
+
+# 매출 피크일 — 그날을 견인한 브랜드·상품
+st.markdown('<div style="font-weight:700;font-size:15px;margin:14px 0 4px">'
+            '🔝 거래액 피크일 TOP 12 — 그날 1등 상품</div>', unsafe_allow_html=True)
+day_tot = daily(FS, "rev").sort_values(ascending=False)
+peak_recs = []
+for dt, tot in day_tot.head(12).items():
+    drows = FS[FS["date"] == dt].sort_values("rev", ascending=False)
+    top = drows.iloc[0]
+    peak_recs.append({
+        "일자": dt.date(), "요일": DOW[dt.weekday()],
+        "당일 거래액": round(tot), "주요 슬롯": top["slot"],
+        "브랜드": top["brand"], "상품": top["prodname"][:30],
+        "상품 거래액": round(top["rev"]),
+        "비중": f"{top['rev']/tot*100:.0f}%" if tot else "—",
+    })
+peak_df = pd.DataFrame(peak_recs)
+st.dataframe(peak_df, use_container_width=True, height=320,
+             column_config={
+                 "당일 거래액": st.column_config.NumberColumn(format="%d"),
+                 "상품 거래액": st.column_config.NumberColumn(format="%d")})
+st.caption("‘당일 거래액’이 튀는 날 어떤 브랜드의 어떤 상품이 견인했는지 — "
+           "비중이 높을수록 한 상품이 그날 매출을 좌우한 날입니다.")
+
+# ════════════════════════════════════════════════════════════
+#    요일별 분석 (상품 배치 전략 지원)
+# ════════════════════════════════════════════════════════════
+section("요일별 분석",
+        "요일별 <b>일평균</b> 거래액·UV — 거래액 높은 요일에 저조 상품을 배치해 부스팅하는 전략 참고용 "
+        "(선택 기간·슬롯 필터 적용)", anchor="sec-dow")
+
+day_rev = daily(FS, "rev")                       # 일별 거래액 합
+dow_rev = day_rev.groupby(day_rev.index.weekday).mean().reindex(range(7))
+dow_uv = FT["UV"].groupby(FT.index.weekday).mean().reindex(range(7))
+dow_ord = daily(FS, "ord").groupby(daily(FS, "ord").index.weekday).mean().reindex(range(7))
+
+d1c, d2c = st.columns(2)
+with d1c:
+    fig = go.Figure(go.Bar(x=DOW, y=dow_rev.values, marker_color=ACCENT,
+                           text=[fwon(v) if pd.notna(v) else "" for v in dow_rev.values],
+                           textposition="outside"))
+    fig.update_layout(yaxis_title="일평균 거래액(원)")
+    plot(fig, "요일별 일평균 거래액", height=340)
+with d2c:
+    fig = go.Figure(go.Bar(x=DOW, y=dow_uv.values, marker_color="#4C72B0",
+                           text=[fnum(v) if pd.notna(v) else "" for v in dow_uv.values],
+                           textposition="outside"))
+    fig.update_layout(yaxis_title="일평균 UV")
+    plot(fig, "요일별 일평균 UV(방문)", height=340)
+
+dow_tbl = pd.DataFrame({
+    "요일": DOW,
+    "일평균 거래액": dow_rev.values,
+    "일평균 UV": dow_uv.values,
+    "일평균 주문": dow_ord.values,
+    "전환율(%)": (dow_ord.values / dow_uv.values * 100),
+}).round({"일평균 거래액": 0, "일평균 UV": 0, "일평균 주문": 1, "전환율(%)": 2})
+st.dataframe(dow_tbl, use_container_width=True, hide_index=True)
+
+if dow_rev.notna().any():
+    hi = int(dow_rev.idxmax())
+    hu = int(dow_uv.idxmax()) if dow_uv.notna().any() else hi
+    insight(f"거래액이 가장 높은 요일은 <b>{DOW[hi]}요일</b>"
+            f"({fwon(dow_rev.iloc[hi])}원/일), 방문(UV)이 가장 많은 요일은 "
+            f"<b>{DOW[hu]}요일</b>입니다. 전략대로라면 <b>{DOW[hi]}요일</b> 같은 고매출 요일에 "
+            "평소 일평균이 낮은 상품을 배치하면 부스팅 효과를 기대할 수 있습니다.")
 
 # ════════════════════════════════════════════════════════════
 # 2. 트래픽 추세
@@ -541,27 +728,42 @@ insight(f"전환율 추세 <b>{cw}</b>({cchg:+.0f}%) · 객단가 추세 <b>{aw}
 # ════════════════════════════════════════════════════════════
 # 4. 베스트 (상품·브랜드·MD)
 # ════════════════════════════════════════════════════════════
-section("베스트 — 기간 누적 랭킹", "선택 기간·슬롯 기준 거래액 상위", anchor="sec-best")
+section("베스트 — 기간 누적 랭킹",
+        "선택 기간·슬롯 기준. <b>일평균 거래액 + 하위</b>로 보면 ‘고매출 요일에 배치할 부스팅 후보(저조 상품)’를 찾을 수 있습니다",
+        anchor="sec-best")
 
-dim = st.radio("기준", ["상품", "브랜드", "MD", "카테고리"], horizontal=True, key="best_dim")
+bc1, bc2, bc3 = st.columns(3)
+with bc1:
+    dim = st.radio("기준", ["상품", "브랜드", "MD", "카테고리"], horizontal=True, key="best_dim")
+with bc2:
+    basis = st.radio("정렬 지표", ["거래액 합계", "일평균 거래액"], horizontal=True, key="best_basis")
+with bc3:
+    order = st.radio("순서", ["상위 TOP", "하위 BOTTOM"], horizontal=True, key="best_order")
 DIMCOL = {"상품": "prodname", "브랜드": "brand", "MD": "md_name", "카테고리": "category"}[dim]
 
 agg = (FS[FS[DIMCOL] != ""].groupby(DIMCOL)
        .agg(거래액=("rev", "sum"), 주문=("ord", "sum"),
-            수량=("qty", "sum"), 노출일수=("date", "nunique"))
-       .sort_values("거래액", ascending=False))
+            수량=("qty", "sum"), 노출일수=("date", "nunique")))
+agg["일평균"] = agg["거래액"] / agg["노출일수"].replace(0, np.nan)
+sortcol = "거래액" if basis == "거래액 합계" else "일평균"
+asc = order == "하위 BOTTOM"
+agg = agg.sort_values(sortcol, ascending=asc)
+
 top = agg.head(15).iloc[::-1]
-fig = px.bar(top, x="거래액", y=top.index, orientation="h",
-             labels={"y": "", "거래액": "거래액(원)"},
-             color_discrete_sequence=[ACCENT])
+fig = px.bar(top, x=sortcol, y=top.index, orientation="h",
+             labels={"y": "", sortcol: f"{sortcol}(원)"},
+             color_discrete_sequence=["#4C72B0" if asc else ACCENT])
 fig.update_layout(yaxis=dict(tickfont=dict(size=11)))
-plot(fig, f"{dim} 거래액 TOP 15", height=480)
+plot(fig, f"{dim} · {sortcol} {'하위' if asc else '상위'} 15", height=480)
 
 show = agg.head(20).copy()
-show["거래액"] = show["거래액"].map(lambda v: f"{v:,.0f}")
-show["객단가"] = (agg.head(20)["거래액"] / agg.head(20)["주문"].replace(0, np.nan)).map(
-    lambda v: "—" if pd.isna(v) else f"{v:,.0f}")
+for c in ["거래액", "일평균"]:
+    show[c] = show[c].map(lambda v: "—" if pd.isna(v) else f"{v:,.0f}")
 st.dataframe(show, use_container_width=True, height=300)
+if asc and basis == "일평균 거래액":
+    insight("👆 일평균 거래액 <b>하위</b> 항목들 — 평소 매출이 낮아 "
+            "<b>고매출 요일(요일별 분석 참고)에 배치하면 부스팅 여지</b>가 큰 후보입니다. "
+            "단, 노출일수가 너무 적은 항목은 표본이 작으니 함께 보세요.")
 
 # ════════════════════════════════════════════════════════════
 # 5. 브랜드·카테고리 믹스
