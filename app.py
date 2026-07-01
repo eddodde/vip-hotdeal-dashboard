@@ -51,13 +51,18 @@ st.markdown("""
         border-bottom: 2px solid #e9ecef; scroll-margin-top: 70px;
     }
     .hint { font-size: 12px; color: #999; margin: -4px 0 10px 0; }
-    .navgroup {
-        font-size: 11px; font-weight: 700; color: #9aa0a6; letter-spacing: 0.04em;
-        margin: 12px 2px 3px; text-transform: none;
+    details.navgrp { margin: 4px 0; }
+    details.navgrp > summary {
+        list-style: none; cursor: pointer; padding: 8px 12px; border-radius: 8px;
+        background: #f2f5fa; color: #2E68B0; font-size: 14px; font-weight: 700;
+        border: 1px solid #e3e9f2; user-select: none;
     }
-    .navgroup:first-child { margin-top: 2px; }
+    details.navgrp > summary::-webkit-details-marker { display: none; }
+    details.navgrp > summary::after { content: "▸"; float: right; color: #9aa0a6; font-weight: 400; }
+    details.navgrp[open] > summary { background: #e3ecf8; color: #163E78; }
+    details.navgrp[open] > summary::after { content: "▾"; }
     a.navlink {
-        display: block; padding: 6px 11px; margin: 3px 0; border-radius: 7px;
+        display: block; padding: 6px 11px; margin: 3px 0 3px 10px; border-radius: 7px;
         background: #fbf2f2; color: #C0392B; text-decoration: none;
         font-size: 13px; font-weight: 600; border: 1px solid #f2e0e0;
     }
@@ -447,9 +452,11 @@ with st.sidebar:
     st.divider()
     st.markdown("**📂 분석 메뉴**")
     nav_html = ""
-    for gtitle, items in MENU_GROUPS:
-        nav_html += f'<div class="navgroup">{gtitle}</div>'
-        nav_html += "".join(f'<a href="#{a}" class="navlink">{lbl}</a>' for a, lbl in items)
+    for i, (gtitle, items) in enumerate(MENU_GROUPS):
+        op = " open" if i == 0 else ""
+        links = "".join(f'<a href="#{a}" class="navlink">{lbl}</a>' for a, lbl in items)
+        nav_html += (f'<details class="navgrp" name="navacc"{op}>'
+                     f'<summary>{gtitle}</summary>{links}</details>')
     st.markdown(nav_html, unsafe_allow_html=True)
     st.divider()
     st.caption(f"📦 {src_note} · {dmin} ~ {dmax} · 매출은 거래액(VAT 제외)")
