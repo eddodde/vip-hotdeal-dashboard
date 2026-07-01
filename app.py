@@ -400,14 +400,15 @@ MENU = [
     ("sec-compare", "🔁 전년·전월·전주 비교"),
     ("sec-avg", "📊 일평균 거래액 (연/월/주)"),
     ("sec-sales", "💰 매출 추세 + 피크일"),
-    ("sec-dow", "📅 요일별 분석"),
     ("sec-traffic", "🚦 트래픽 추세"),
     ("sec-conv", "🎯 전환·효율"),
+    ("sec-dow", "📅 요일별 분석"),
+    ("sec-slot", "⏰ 오전·오후 슬롯"),
     ("sec-best", "🏆 베스트 (상품·브랜드·MD)"),
     ("sec-mix", "🧩 브랜드·카테고리 믹스"),
-    ("sec-slot", "⏰ 오전·오후 슬롯"),
     ("sec-md", "🧾 MD·브랜드 1-Pager"),
     ("sec-table", "📋 상세 데이터"),
+    ("sec-insight", "🧭 인사이트 & 액션"),
 ]
 
 # ── 사이드바: 필터 ──────────────────────────────────────────
@@ -719,49 +720,6 @@ plot(figy, "연도별 월간 일평균 거래액 비교 (YoY)", height=360)
 insight("<b>2024년은 7월부터</b> 데이터가 있어 상반기가 비어 보입니다.", "")
 
 # ════════════════════════════════════════════════════════════
-#    요일별 분석 (상품 배치 전략 지원)
-# ════════════════════════════════════════════════════════════
-section("요일별 분석",
-        "요일별 <b>일평균</b> 거래액·UV — 거래액 높은 요일에 저조 상품을 배치해 부스팅하는 전략 참고용 "
-        "(선택 기간·슬롯 필터 적용)", anchor="sec-dow")
-
-day_rev = daily(FS, "rev")                       # 일별 거래액 합
-dow_rev = day_rev.groupby(day_rev.index.weekday).mean().reindex(range(7))
-dow_uv = FT["UV"].groupby(FT.index.weekday).mean().reindex(range(7))
-dow_ord = daily(FS, "ord").groupby(daily(FS, "ord").index.weekday).mean().reindex(range(7))
-
-d1c, d2c = st.columns(2)
-with d1c:
-    fig = go.Figure(go.Bar(x=DOW, y=dow_rev.values, marker_color=ACCENT,
-                           text=[fwon(v) if pd.notna(v) else "" for v in dow_rev.values],
-                           textposition="outside"))
-    fig.update_layout(yaxis_title="일평균 거래액(원)")
-    plot(fig, "요일별 일평균 거래액", height=340)
-with d2c:
-    fig = go.Figure(go.Bar(x=DOW, y=dow_uv.values, marker_color="#4C72B0",
-                           text=[fnum(v) if pd.notna(v) else "" for v in dow_uv.values],
-                           textposition="outside"))
-    fig.update_layout(yaxis_title="일평균 UV")
-    plot(fig, "요일별 일평균 UV(방문)", height=340)
-
-dow_tbl = pd.DataFrame({
-    "요일": DOW,
-    "일평균 거래액(원)": [won(v) for v in dow_rev.values],
-    "일평균 UV": [won(v) for v in dow_uv.values],
-    "일평균 주문": np.round(dow_ord.values, 1),
-    "전환율(%)": np.round(dow_ord.values / dow_uv.values * 100, 2),
-})
-st.dataframe(dow_tbl, use_container_width=True, hide_index=True)
-
-if dow_rev.notna().any():
-    hi = int(dow_rev.idxmax())
-    hu = int(dow_uv.idxmax()) if dow_uv.notna().any() else hi
-    insight(f"거래액이 가장 높은 요일은 <b>{DOW[hi]}요일</b>"
-            f"({won(dow_rev.iloc[hi])}원/일), 방문(UV)이 가장 많은 요일은 "
-            f"<b>{DOW[hu]}요일</b>입니다. 전략대로라면 <b>{DOW[hi]}요일</b> 같은 고매출 요일에 "
-            "평소 일평균이 낮은 상품을 배치하면 부스팅 효과를 기대할 수 있습니다.")
-
-# ════════════════════════════════════════════════════════════
 # 2. 트래픽 추세
 # ════════════════════════════════════════════════════════════
 section("트래픽 추세", "콘텐츠 영역별 UV/PV 흐름 — 핫딜이 VIP라운지 내에서 차지하는 위치",
@@ -814,6 +772,75 @@ cw, cchg = trend_word(conv_s)
 aw, achg = trend_word(aov_s)
 insight(f"전환율 추세 <b>{cw}</b>({sgn(cchg, '%', 0)}) · 객단가 추세 <b>{aw}</b>({sgn(achg, '%', 0)}). "
         f"전환율은 페이지 총 UV 기준이라 슬롯 필터의 영향을 받지 않습니다.")
+
+# ════════════════════════════════════════════════════════════
+#    요일별 분석 (상품 배치 전략 지원)
+# ════════════════════════════════════════════════════════════
+section("요일별 분석",
+        "요일별 <b>일평균</b> 거래액·UV — 거래액 높은 요일에 저조 상품을 배치해 부스팅하는 전략 참고용 "
+        "(선택 기간·슬롯 필터 적용)", anchor="sec-dow")
+
+day_rev = daily(FS, "rev")                       # 일별 거래액 합
+dow_rev = day_rev.groupby(day_rev.index.weekday).mean().reindex(range(7))
+dow_uv = FT["UV"].groupby(FT.index.weekday).mean().reindex(range(7))
+dow_ord = daily(FS, "ord").groupby(daily(FS, "ord").index.weekday).mean().reindex(range(7))
+
+d1c, d2c = st.columns(2)
+with d1c:
+    fig = go.Figure(go.Bar(x=DOW, y=dow_rev.values, marker_color=ACCENT,
+                           text=[fwon(v) if pd.notna(v) else "" for v in dow_rev.values],
+                           textposition="outside"))
+    fig.update_layout(yaxis_title="일평균 거래액(원)")
+    plot(fig, "요일별 일평균 거래액", height=340)
+with d2c:
+    fig = go.Figure(go.Bar(x=DOW, y=dow_uv.values, marker_color="#4C72B0",
+                           text=[fnum(v) if pd.notna(v) else "" for v in dow_uv.values],
+                           textposition="outside"))
+    fig.update_layout(yaxis_title="일평균 UV")
+    plot(fig, "요일별 일평균 UV(방문)", height=340)
+
+dow_tbl = pd.DataFrame({
+    "요일": DOW,
+    "일평균 거래액(원)": [won(v) for v in dow_rev.values],
+    "일평균 UV": [won(v) for v in dow_uv.values],
+    "일평균 주문": np.round(dow_ord.values, 1),
+    "전환율(%)": np.round(dow_ord.values / dow_uv.values * 100, 2),
+})
+st.dataframe(dow_tbl, use_container_width=True, hide_index=True)
+
+if dow_rev.notna().any():
+    hi = int(dow_rev.idxmax())
+    hu = int(dow_uv.idxmax()) if dow_uv.notna().any() else hi
+    insight(f"거래액이 가장 높은 요일은 <b>{DOW[hi]}요일</b>"
+            f"({won(dow_rev.iloc[hi])}원/일), 방문(UV)이 가장 많은 요일은 "
+            f"<b>{DOW[hu]}요일</b>입니다. 전략대로라면 <b>{DOW[hi]}요일</b> 같은 고매출 요일에 "
+            "평소 일평균이 낮은 상품을 배치하면 부스팅 효과를 기대할 수 있습니다.")
+
+# ════════════════════════════════════════════════════════════
+#    오전·오후 슬롯
+# ════════════════════════════════════════════════════════════
+section("오전·오후 슬롯 비교", "슬롯별 매출·주문 추세와 점유", anchor="sec-slot")
+
+base = SLOTS[(SLOTS["date"] >= d0) & (SLOTS["date"] <= d1)]
+sc1, sc2 = st.columns([2, 1])
+with sc1:
+    fig = go.Figure()
+    for sl in ["오전", "오후"]:
+        s = resample(base[base["slot"] == sl].groupby("date")["rev"].sum(), freq, how="mean")
+        fig.add_trace(go.Scatter(x=s.index, y=s.values, name=sl,
+                                 line=dict(color=SLOT_COLOR[sl], width=2)))
+    fig.update_yaxes(tickformat=",")
+    plot(fig, f"슬롯별 일평균 거래액 ({freq})", height=340)
+with sc2:
+    sl_sum = base.groupby("slot")["rev"].sum().reindex(["오전", "오후"]).fillna(0)
+    fig = px.pie(values=sl_sum.values, names=sl_sum.index, hole=0.5,
+                 color=sl_sum.index, color_discrete_map=SLOT_COLOR)
+    plot(fig, "슬롯 매출 점유", height=340)
+
+am, pm = base[base["slot"] == "오전"]["rev"].sum(), base[base["slot"] == "오후"]["rev"].sum()
+lead = "오전" if am > pm else "오후"
+insight(f"기간 합계 거래액은 <b>{lead}</b>이 우위 "
+        f"(오전 {won(am)}원 · 오후 {won(pm)}원).")
 
 # ════════════════════════════════════════════════════════════
 # 4. 베스트 (상품·브랜드·MD)
@@ -889,32 +916,6 @@ fig = px.area(piv, x="bucket", y="rev", color="grp",
               labels={"bucket": "", "rev": "거래액(원)", "grp": mix_dim},
               color_discrete_sequence=px.colors.qualitative.Set2)
 plot(fig, f"{mix_dim}별 거래액 구성", height=420)
-
-# ════════════════════════════════════════════════════════════
-# 6. 오전·오후 슬롯
-# ════════════════════════════════════════════════════════════
-section("오전·오후 슬롯 비교", "슬롯별 매출·주문 추세와 점유", anchor="sec-slot")
-
-base = SLOTS[(SLOTS["date"] >= d0) & (SLOTS["date"] <= d1)]
-sc1, sc2 = st.columns([2, 1])
-with sc1:
-    fig = go.Figure()
-    for sl in ["오전", "오후"]:
-        s = resample(base[base["slot"] == sl].groupby("date")["rev"].sum(), freq, how="mean")
-        fig.add_trace(go.Scatter(x=s.index, y=s.values, name=sl,
-                                 line=dict(color=SLOT_COLOR[sl], width=2)))
-    fig.update_yaxes(tickformat=",")
-    plot(fig, f"슬롯별 일평균 거래액 ({freq})", height=340)
-with sc2:
-    sl_sum = base.groupby("slot")["rev"].sum().reindex(["오전", "오후"]).fillna(0)
-    fig = px.pie(values=sl_sum.values, names=sl_sum.index, hole=0.5,
-                 color=sl_sum.index, color_discrete_map=SLOT_COLOR)
-    plot(fig, "슬롯 매출 점유", height=340)
-
-am, pm = base[base["slot"] == "오전"]["rev"].sum(), base[base["slot"] == "오후"]["rev"].sum()
-lead = "오전" if am > pm else "오후"
-insight(f"기간 합계 거래액은 <b>{lead}</b>이 우위 "
-        f"(오전 {won(am)}원 · 오후 {won(pm)}원).")
 
 # ════════════════════════════════════════════════════════════
 #    MD·브랜드 1-Pager (MD 핫딜 상품 요청용 성적표)
@@ -1011,6 +1012,59 @@ st.download_button("⬇️ CSV 다운로드", tbl[cols].to_csv(index=False).enco
 st.caption("ℹ️ 거래액_전체 = 상품 전체 거래액, 거래액_직접 = VIP핫딜 영역 경유(어트리뷰션). "
            "VAT 제외·원 단위 분수값일 수 있음. UV/PV는 페이지 총계(중복 제거), 매출·주문은 슬롯 합산. "
            "주문(ord)은 현재 선택한 ‘매출 기준’을 따릅니다.")
+
+# ════════════════════════════════════════════════════════════
+#    인사이트 & 액션 (종합)
+# ════════════════════════════════════════════════════════════
+section("인사이트 & 액션",
+        f"선택 기간·필터 기준으로 자동 요약된 현황 진단·시사점·액션 ({d0.date()} ~ {d1.date()})",
+        anchor="sec-insight")
+
+# 요약용 지표 (자체 재계산 — 섹션 독립)
+i_days = max(FS["date"].nunique(), 1)
+i_dir, i_tot = FS["_rev_direct"].sum(), FS["_rev_total"].sum()
+i_attr = (i_dir / i_tot * 100) if i_tot else 0
+i_adir = i_dir / i_days
+i_drev = daily(FS, "rev")
+i_dowrev = i_drev.groupby(i_drev.index.weekday).mean().reindex(range(7))
+i_bestdow = DOW[int(i_dowrev.idxmax())] if i_dowrev.notna().any() else "—"
+i_uv, i_ord = FT["UV"].sum(), FS["ord"].sum()
+i_conv = (i_ord / i_uv * 100) if i_uv else 0
+i_tbs = FS[FS["brand"] != ""].groupby("brand")["rev"].sum().sort_values(ascending=False)
+i_tb = i_tbs.index[0] if len(i_tbs) else "—"
+i_tw, i_tchg = trend_word(resample(daily(FS, "rev"), freq, how="mean"))
+
+
+def _panel(title, color, items):
+    lis = "".join(f"<li>{x}</li>" for x in items)
+    st.markdown(
+        f'<div style="border-left:5px solid {color};background:#fafafb;border-radius:8px;'
+        f'padding:12px 18px;margin:8px 0">'
+        f'<div style="font-weight:700;font-size:15px;color:#1a1a2e;margin-bottom:6px">{title}</div>'
+        f'<ul style="margin:0 0 0 18px;padding:0;font-size:14px;line-height:1.75">{lis}</ul></div>',
+        unsafe_allow_html=True)
+
+
+_panel("📌 현황 분석 & 인사이트", "#4C72B0", [
+    f"핫딜 직접 <b>일평균 {won(i_adir)}원</b> · 어트리뷰션율 <b>{i_attr:.0f}%</b> — "
+    f"상품 전체 매출의 {i_attr:.0f}%만 핫딜 영역 직접 구매, 나머지 <b>{100-i_attr:.0f}%는 노출 후 다른 경로</b>(헤일로).",
+    f"{freq} 매출(일평균) 추세는 <b>{i_tw}</b> ({sgn(i_tchg, '%', 0)}).",
+    f"방문→구매 전환율 <b>{i_conv:.2f}%</b> · 기간 매출 1위 브랜드 <b>{i_tb}</b>.",
+    f"요일 편차 존재 — <b>{i_bestdow}요일</b>의 일평균 거래액이 가장 높음.",
+])
+_panel("💡 시사점 (So-What)", "#E45756", [
+    f"핫딜은 ‘할인 손실’이 아니라 <b>노출 채널</b> — 매출의 <b>{100-i_attr:.0f}%가 노출로 발생</b>. "
+    "MD에게 핫딜 상품을 요청할 때의 핵심 근거.",
+    f"고매출 요일(<b>{i_bestdow}요일</b>)에 평소 <b>일평균 저조 상품</b>을 배치하면 부스팅 여지가 큼.",
+    "어트리뷰션율이 낮아지면 ‘보고 나중에 구매’ 비중↑ — 영역 기여도 저하 신호로 모니터링 필요.",
+])
+_panel("✅ 추후 액션 (Action)", "#2E7D32", [
+    "매주 MD 요청 메일에 <b>MD·브랜드 1-Pager</b>(헤일로·성적표)를 그대로 첨부해 설득력 강화.",
+    "<b>요일별 분석</b> × <b>베스트(일평균 하위)</b>를 교차해 고매출 요일에 올릴 부스팅 상품 선정.",
+    "노출 우선순위는 <b>베스트 가중 점수</b>(판매금액·판매량·PV)로 정렬해 몰 기준과 정합성 유지.",
+    "(데이터 확보 시) 고객 신규/재구매·마진을 연동해 <b>ROI·LTV</b> 논거로 1-Pager 보강.",
+])
+st.caption("※ 위 요약은 현재 선택한 기간·슬롯·매출 기준에 따라 자동 갱신됩니다.")
 
 # ── 사이드바 nav 부드러운 스크롤 ────────────────────────────
 components.html("""
