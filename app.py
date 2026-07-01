@@ -675,29 +675,55 @@ if _tt:
 # 매출 피크일 — 그날을 견인한 브랜드·상품 (차트 바로 아래)
 st.markdown('<div style="font-weight:700;font-size:15px;margin:14px 0 4px">'
             '🔝 피크일 TOP 12 — 그날 1등 상품</div>', unsafe_allow_html=True)
-peak_by = st.radio("피크 기준", ["거래액", "주문건수(수요)"], horizontal=True, key="peak_by",
-                   help="거래액은 고단가 1개에도 튈 수 있어요. 실제 수요가 몰린 날은 '주문건수'로 보세요.")
 day_rev = daily(FS, "rev")
 day_ord = daily(FS, "ord")
 day_qty = daily(FS, "qty")
-rank = (day_rev if peak_by == "거래액" else day_ord).sort_values(ascending=False)
+day_pv = daily(FS, "PV")
+
+pcol1, pcol2 = st.columns([1.1, 2])
+with pcol1:
+    peak_by = st.radio("피크 기준", ["가중 점수", "거래액", "주문건수"], horizontal=False, key="peak_by",
+                       help="거래액만 보면 고단가 1개에도 튑니다. 가중 점수는 판매금액·판매량·PV를 "
+                            "0~1로 정규화한 뒤 가중합한 우선순위 점수예요(몰 베스트 산출식과 동일한 취지).")
+with pcol2:
+    st.caption("가중치 (판매금액·판매량·PV) — 각 지표를 0~1로 정규화 후 가중합")
+    w1, w2, w3 = st.columns(3)
+    w_amt = w1.number_input("판매금액", 0.0, 1.0, 0.7, 0.05, key="w_amt")
+    w_qty = w2.number_input("판매량", 0.0, 1.0, 0.2, 0.05, key="w_qty")
+    w_pv = w3.number_input("PV", 0.0, 1.0, 0.1, 0.05, key="w_pv")
+
+
+def _nz(s):                       # min-max 0~1 정규화
+    lo, hi = s.min(), s.max()
+    return (s - lo) / (hi - lo) if hi > lo else s * 0.0
+
+
+score = w_amt * _nz(day_rev) + w_qty * _nz(day_qty) + w_pv * _nz(day_pv)
+if peak_by == "가중 점수":
+    rank = score.sort_values(ascending=False)
+elif peak_by == "거래액":
+    rank = day_rev.sort_values(ascending=False)
+else:
+    rank = day_ord.sort_values(ascending=False)
+smax = score.max() or 1
+
 peak_recs = []
 for dt in rank.head(12).index:
     tot = day_rev.get(dt, 0)
-    drows = FS[FS["date"] == dt].sort_values("rev", ascending=False)
-    top = drows.iloc[0]
+    top = FS[FS["date"] == dt].sort_values("rev", ascending=False).iloc[0]
     peak_recs.append({
         "일자": str(dt.date()), "요일": DOW[dt.weekday()],
+        "점수": round(score.get(dt, 0) / smax * 100, 1),
         "당일 거래액": won(tot),
         "건수": int(day_ord.get(dt, 0)), "수량": int(day_qty.get(dt, 0)),
-        "주요 슬롯": top["slot"], "브랜드": top["brand"], "상품": top["prodname"][:28],
+        "슬롯": top["slot"], "브랜드": top["brand"], "상품": top["prodname"][:26],
         "상품 거래액": won(top["rev"]),
         "비중": f"{top['rev']/tot*100:.0f}%" if tot else "—",
     })
 st.dataframe(pd.DataFrame(peak_recs), use_container_width=True, height=320, hide_index=True)
-st.caption("‘건수·수량’을 함께 보세요 — 건수 1인데 거래액이 크면 "
-           "고단가 1개로 튄 날이라 실제 수요 피크가 아닙니다. "
-           "수요가 몰린 날은 위에서 ‘주문건수’ 기준으로 확인하세요.")
+st.caption("‘점수’는 판매금액·판매량·PV를 정규화·가중합한 상대 우선순위(최고=100). "
+           "가중치를 조절해 기준을 바꿀 수 있어요. 건수 1인데 거래액만 큰 날은 고단가 단발이라 "
+           "가중 점수에선 판매량·PV가 낮아 자연히 내려갑니다.")
 
 # 연도(YoY) 비교 — 월별 일평균 거래액 (2024년 이후만)
 yoy = SLOTS.copy()
