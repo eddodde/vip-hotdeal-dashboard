@@ -58,13 +58,13 @@ st.markdown("""
         border: 1px solid #e3e9f2; user-select: none;
     }
     details.navgrp > summary::-webkit-details-marker { display: none; }
-    details.navgrp > summary::after { content: "▸"; float: right; color: #9aa0a6; font-weight: 400; }
+    details.navgrp > summary::before { content: "▸"; color: #9aa0a6; font-weight: 400; margin-right: 7px; }
     details.navgrp[open] > summary { background: #e3ecf8; color: #163E78; }
-    details.navgrp[open] > summary::after { content: "▾"; }
+    details.navgrp[open] > summary::before { content: "▾"; }
     a.navlink {
-        display: block; padding: 6px 11px; margin: 3px 0 3px 10px; border-radius: 7px;
+        display: block; padding: 7px 12px; margin: 4px 0 4px 12px; border-radius: 8px;
         background: #fbf2f2; color: #C0392B; text-decoration: none;
-        font-size: 13px; font-weight: 600; border: 1px solid #f2e0e0;
+        font-size: 13px; font-weight: 600; line-height: 1.4; border: 1px solid #f2e0e0;
     }
     a.navlink:hover { background: #f8e3e3; color: #922B21; }
     .insight {
@@ -406,30 +406,30 @@ st.caption("VIP라운지 핫딜 콘텐츠의 매출·트래픽·전환을 기간
            "데일리 실적은 따로 보시니, 여기선 '흐름'에 집중합니다.")
 
 MENU_GROUPS = [
-    ("개요", [
-        ("sec-core", "🔑 핵심 요약"),
+    ("📌 개요", [
+        ("sec-core", "핵심 요약"),
     ]),
-    ("매출 성과", [
-        ("sec-compare", "🔁 전년·전월·전주 비교"),
-        ("sec-avg", "📊 일평균 거래액"),
-        ("sec-sales", "💰 매출 추세·피크일"),
+    ("💰 매출 성과", [
+        ("sec-compare", "전년·전월·전주 비교"),
+        ("sec-avg", "일평균 거래액 (연/월/주)"),
+        ("sec-sales", "매출 추세·피크일"),
     ]),
-    ("유입·전환", [
-        ("sec-traffic", "🚦 트래픽 추세"),
-        ("sec-conv", "🎯 전환·효율"),
+    ("🚦 유입·전환", [
+        ("sec-traffic", "트래픽 추세"),
+        ("sec-conv", "전환·효율"),
     ]),
-    ("패턴", [
-        ("sec-dow", "📅 요일별 분석"),
-        ("sec-slot", "⏰ 오전·오후 슬롯"),
+    ("📅 패턴", [
+        ("sec-dow", "요일별 분석"),
+        ("sec-slot", "오전·오후 슬롯"),
     ]),
-    ("구성·랭킹", [
-        ("sec-best", "🏆 베스트"),
-        ("sec-mix", "🧩 카테고리 믹스"),
+    ("🏆 구성·랭킹", [
+        ("sec-best", "베스트 (상품·브랜드·MD)"),
+        ("sec-mix", "브랜드·카테고리 믹스"),
     ]),
-    ("실행·정리", [
-        ("sec-md", "🧾 MD·브랜드 1-Pager"),
-        ("sec-table", "📋 상세 데이터"),
-        ("sec-insight", "🧭 인사이트 & 액션"),
+    ("🧭 실행·정리", [
+        ("sec-md", "MD·브랜드 1-Pager"),
+        ("sec-table", "상세 데이터"),
+        ("sec-insight", "인사이트 & 액션"),
     ]),
 ]
 
@@ -451,10 +451,13 @@ with st.sidebar:
 
     st.divider()
     st.markdown("**📂 분석 메뉴**")
-    nav_html = ""
+    nav_html, _n = "", 0
     for i, (gtitle, items) in enumerate(MENU_GROUPS):
         op = " open" if i == 0 else ""
-        links = "".join(f'<a href="#{a}" class="navlink">{lbl}</a>' for a, lbl in items)
+        links = ""
+        for a, lbl in items:
+            _n += 1
+            links += f'<a href="#{a}" class="navlink">{_n} · {lbl}</a>'
         nav_html += (f'<details class="navgrp" name="navacc"{op}>'
                      f'<summary>{gtitle}</summary>{links}</details>')
     st.markdown(nav_html, unsafe_allow_html=True)
