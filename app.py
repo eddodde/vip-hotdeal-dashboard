@@ -51,10 +51,15 @@ st.markdown("""
         border-bottom: 2px solid #e9ecef; scroll-margin-top: 70px;
     }
     .hint { font-size: 12px; color: #999; margin: -4px 0 10px 0; }
+    .navgroup {
+        font-size: 11px; font-weight: 700; color: #9aa0a6; letter-spacing: 0.04em;
+        margin: 12px 2px 3px; text-transform: none;
+    }
+    .navgroup:first-child { margin-top: 2px; }
     a.navlink {
-        display: block; padding: 8px 12px; margin: 4px 0; border-radius: 8px;
+        display: block; padding: 6px 11px; margin: 3px 0; border-radius: 7px;
         background: #fbf2f2; color: #C0392B; text-decoration: none;
-        font-size: 14px; font-weight: 600; border: 1px solid #f2e0e0;
+        font-size: 13px; font-weight: 600; border: 1px solid #f2e0e0;
     }
     a.navlink:hover { background: #f8e3e3; color: #922B21; }
     .insight {
@@ -395,20 +400,32 @@ st.title("🔥 VIP 핫딜 트렌드 대시보드")
 st.caption("VIP라운지 핫딜 콘텐츠의 매출·트래픽·전환을 기간별 추세로 진단합니다. "
            "데일리 실적은 따로 보시니, 여기선 '흐름'에 집중합니다.")
 
-MENU = [
-    ("sec-core", "🔑 핵심 요약"),
-    ("sec-compare", "🔁 전년·전월·전주 비교"),
-    ("sec-avg", "📊 일평균 거래액 (연/월/주)"),
-    ("sec-sales", "💰 매출 추세 + 피크일"),
-    ("sec-traffic", "🚦 트래픽 추세"),
-    ("sec-conv", "🎯 전환·효율"),
-    ("sec-dow", "📅 요일별 분석"),
-    ("sec-slot", "⏰ 오전·오후 슬롯"),
-    ("sec-best", "🏆 베스트 (상품·브랜드·MD)"),
-    ("sec-mix", "🧩 브랜드·카테고리 믹스"),
-    ("sec-md", "🧾 MD·브랜드 1-Pager"),
-    ("sec-table", "📋 상세 데이터"),
-    ("sec-insight", "🧭 인사이트 & 액션"),
+MENU_GROUPS = [
+    ("개요", [
+        ("sec-core", "🔑 핵심 요약"),
+    ]),
+    ("매출 성과", [
+        ("sec-compare", "🔁 전년·전월·전주 비교"),
+        ("sec-avg", "📊 일평균 거래액"),
+        ("sec-sales", "💰 매출 추세·피크일"),
+    ]),
+    ("유입·전환", [
+        ("sec-traffic", "🚦 트래픽 추세"),
+        ("sec-conv", "🎯 전환·효율"),
+    ]),
+    ("패턴", [
+        ("sec-dow", "📅 요일별 분석"),
+        ("sec-slot", "⏰ 오전·오후 슬롯"),
+    ]),
+    ("구성·랭킹", [
+        ("sec-best", "🏆 베스트"),
+        ("sec-mix", "🧩 카테고리 믹스"),
+    ]),
+    ("실행·정리", [
+        ("sec-md", "🧾 MD·브랜드 1-Pager"),
+        ("sec-table", "📋 상세 데이터"),
+        ("sec-insight", "🧭 인사이트 & 액션"),
+    ]),
 ]
 
 # ── 사이드바: 필터 ──────────────────────────────────────────
@@ -429,8 +446,11 @@ with st.sidebar:
 
     st.divider()
     st.markdown("**📂 분석 메뉴**")
-    st.markdown("".join(f'<a href="#{a}" class="navlink">{lbl}</a>' for a, lbl in MENU),
-                unsafe_allow_html=True)
+    nav_html = ""
+    for gtitle, items in MENU_GROUPS:
+        nav_html += f'<div class="navgroup">{gtitle}</div>'
+        nav_html += "".join(f'<a href="#{a}" class="navlink">{lbl}</a>' for a, lbl in items)
+    st.markdown(nav_html, unsafe_allow_html=True)
     st.divider()
     st.caption(f"📦 {src_note} · {dmin} ~ {dmax} · 매출은 거래액(VAT 제외)")
 
