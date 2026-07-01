@@ -234,6 +234,12 @@ def won(x):
     return "—" if pd.isna(x) else f"{round(float(x)):,}"
 
 
+def _norm01(s):
+    """Series를 0~1로 min-max 정규화(범위 0이면 0)."""
+    lo, hi = s.min(), s.max()
+    return (s - lo) / (hi - lo) if hi > lo else s * 0.0
+
+
 def sgn(x, suffix="%", digits=1):
     """증감 표기(내부 규칙): 양수=세모 없이 녹색 숫자, 음수=빨강 △(빈 세모)."""
     if x is None or pd.isna(x):
@@ -672,58 +678,28 @@ if _tt:
             f"(라운지에서 보고 나중에 재유입 구매 등)입니다. "
             f"선택 기간 평균 어트리뷰션율 {FS['_rev_direct'].sum()/_tt*100:.0f}%.")
 
-# 매출 피크일 — 그날을 견인한 브랜드·상품 (차트 바로 아래)
+# 거래액 피크일 — 그날을 견인한 브랜드·상품 (차트 바로 아래)
 st.markdown('<div style="font-weight:700;font-size:15px;margin:14px 0 4px">'
-            '🔝 피크일 TOP 12 — 그날 1등 상품</div>', unsafe_allow_html=True)
+            '🔝 거래액 피크일 TOP 12 — 그날 1등 상품</div>', unsafe_allow_html=True)
 day_rev = daily(FS, "rev")
 day_ord = daily(FS, "ord")
 day_qty = daily(FS, "qty")
-day_pv = daily(FS, "PV")
-
-pcol1, pcol2 = st.columns([1.1, 2])
-with pcol1:
-    peak_by = st.radio("피크 기준", ["가중 점수", "거래액", "주문건수"], horizontal=False, key="peak_by",
-                       help="거래액만 보면 고단가 1개에도 튑니다. 가중 점수는 판매금액·판매량·PV를 "
-                            "0~1로 정규화한 뒤 가중합한 우선순위 점수예요(몰 베스트 산출식과 동일한 취지).")
-with pcol2:
-    st.caption("가중치 (판매금액·판매량·PV) — 각 지표를 0~1로 정규화 후 가중합")
-    w1, w2, w3 = st.columns(3)
-    w_amt = w1.number_input("판매금액", 0.0, 1.0, 0.7, 0.05, key="w_amt")
-    w_qty = w2.number_input("판매량", 0.0, 1.0, 0.2, 0.05, key="w_qty")
-    w_pv = w3.number_input("PV", 0.0, 1.0, 0.1, 0.05, key="w_pv")
-
-
-def _nz(s):                       # min-max 0~1 정규화
-    lo, hi = s.min(), s.max()
-    return (s - lo) / (hi - lo) if hi > lo else s * 0.0
-
-
-score = w_amt * _nz(day_rev) + w_qty * _nz(day_qty) + w_pv * _nz(day_pv)
-if peak_by == "가중 점수":
-    rank = score.sort_values(ascending=False)
-elif peak_by == "거래액":
-    rank = day_rev.sort_values(ascending=False)
-else:
-    rank = day_ord.sort_values(ascending=False)
-smax = score.max() or 1
-
 peak_recs = []
-for dt in rank.head(12).index:
-    tot = day_rev.get(dt, 0)
+for dt in day_rev.sort_values(ascending=False).head(12).index:
+    tot = day_rev[dt]
     top = FS[FS["date"] == dt].sort_values("rev", ascending=False).iloc[0]
     peak_recs.append({
         "일자": str(dt.date()), "요일": DOW[dt.weekday()],
-        "점수": round(score.get(dt, 0) / smax * 100, 1),
         "당일 거래액": won(tot),
         "건수": int(day_ord.get(dt, 0)), "수량": int(day_qty.get(dt, 0)),
-        "슬롯": top["slot"], "브랜드": top["brand"], "상품": top["prodname"][:26],
+        "슬롯": top["slot"], "브랜드": top["brand"], "상품": top["prodname"][:28],
         "상품 거래액": won(top["rev"]),
         "비중": f"{top['rev']/tot*100:.0f}%" if tot else "—",
     })
 st.dataframe(pd.DataFrame(peak_recs), use_container_width=True, height=320, hide_index=True)
-st.caption("‘점수’는 판매금액·판매량·PV를 정규화·가중합한 상대 우선순위(최고=100). "
-           "가중치를 조절해 기준을 바꿀 수 있어요. 건수 1인데 거래액만 큰 날은 고단가 단발이라 "
-           "가중 점수에선 판매량·PV가 낮아 자연히 내려갑니다.")
+st.caption("거래액 순 정렬. ‘건수·수량’을 함께 보세요 — 건수 1인데 거래액이 크면 "
+           "고단가 1개로 튄 날이라 실제 수요 피크는 아닙니다. "
+           "가중 우선순위(판매금액·판매량·PV)는 아래 🏆 베스트에서 봅니다.")
 
 # 연도(YoY) 비교 — 월별 일평균 거래액 (2024년 이후만)
 yoy = SLOTS.copy()
@@ -843,29 +819,42 @@ insight(f"전환율 추세 <b>{cw}</b>({sgn(cchg, '%', 0)}) · 객단가 추세 
 # 4. 베스트 (상품·브랜드·MD)
 # ════════════════════════════════════════════════════════════
 section("베스트 — 기간 누적 랭킹",
-        "선택 기간·슬롯 기준. <b>일평균 거래액 + 하위</b>로 보면 ‘고매출 요일에 배치할 부스팅 후보(저조 상품)’를 찾을 수 있습니다",
+        "선택 기간·슬롯 기준. <b>가중 점수</b>=몰 베스트 산출식(판매금액·판매량·PV 정규화 후 가중합). "
+        "<b>일평균 거래액 + 하위</b>로 보면 ‘고매출 요일에 배치할 부스팅 후보(저조 상품)’를 찾습니다",
         anchor="sec-best")
 
 bc1, bc2, bc3 = st.columns(3)
 with bc1:
     dim = st.radio("기준", ["상품", "브랜드", "MD", "카테고리"], horizontal=True, key="best_dim")
 with bc2:
-    basis = st.radio("정렬 지표", ["일평균 거래액", "거래액 합계"], horizontal=True, key="best_basis")
+    basis = st.radio("정렬 지표", ["가중 점수", "일평균 거래액", "거래액 합계"],
+                     horizontal=True, key="best_basis")
 with bc3:
     order = st.radio("순서", ["상위 TOP", "하위 BOTTOM"], horizontal=True, key="best_order")
+if basis == "가중 점수":
+    st.caption("가중치 (판매금액·판매량·PV) — 각 지표를 0~1 정규화 후 가중합, 최고=100점")
+    bw1, bw2, bw3 = st.columns(3)
+    bw_amt = bw1.number_input("판매금액", 0.0, 1.0, 0.7, 0.05, key="bw_amt")
+    bw_qty = bw2.number_input("판매량", 0.0, 1.0, 0.2, 0.05, key="bw_qty")
+    bw_pv = bw3.number_input("PV", 0.0, 1.0, 0.1, 0.05, key="bw_pv")
 DIMCOL = {"상품": "prodname", "브랜드": "brand", "MD": "md_name", "카테고리": "category"}[dim]
 
 agg = (FS[FS[DIMCOL] != ""].groupby(DIMCOL)
-       .agg(거래액=("rev", "sum"), 주문=("ord", "sum"),
-            수량=("qty", "sum"), 노출일수=("date", "nunique")))
+       .agg(거래액=("rev", "sum"), 주문=("ord", "sum"), 수량=("qty", "sum"),
+            PV=("PV", "sum"), 노출일수=("date", "nunique")))
 agg["일평균"] = agg["거래액"] / agg["노출일수"].replace(0, np.nan)
-sortcol = "거래액" if basis == "거래액 합계" else "일평균"
+if basis == "가중 점수":
+    raw = bw_amt * _norm01(agg["거래액"]) + bw_qty * _norm01(agg["수량"]) + bw_pv * _norm01(agg["PV"])
+    agg["가중점수"] = (raw / raw.max() * 100).round(1) if raw.max() else 0.0
+
+sortcol = {"가중 점수": "가중점수", "일평균 거래액": "일평균", "거래액 합계": "거래액"}[basis]
 asc = order == "하위 BOTTOM"
 agg = agg.sort_values(sortcol, ascending=asc)
+unit = "점" if sortcol == "가중점수" else "원"
 
 top = agg.head(15).iloc[::-1]
 fig = px.bar(top, x=sortcol, y=top.index, orientation="h",
-             labels={"y": "", sortcol: f"{sortcol}(원)"},
+             labels={"y": "", sortcol: f"{sortcol}({unit})"},
              color_discrete_sequence=["#4C72B0" if asc else ACCENT])
 fig.update_layout(yaxis=dict(tickfont=dict(size=11)))
 plot(fig, f"{dim} · {sortcol} {'하위' if asc else '상위'} 15", height=480)
@@ -874,7 +863,10 @@ show = agg.head(20).copy()
 for c in ["거래액", "일평균"]:
     show[c] = show[c].map(lambda v: "—" if pd.isna(v) else f"{v:,.0f}")
 st.dataframe(show, use_container_width=True, height=300)
-if asc and basis == "일평균 거래액":
+if basis == "가중 점수":
+    insight("‘가중점수’는 몰 베스트 노출 기준과 같은 방식(판매금액·판매량·PV 정규화 후 가중합)입니다. "
+            "가중치를 바꾸면 우선순위가 재계산돼요. 고단가 단발 상품은 판매량·PV가 낮아 자연히 밀립니다.")
+elif asc and basis == "일평균 거래액":
     insight("👆 일평균 거래액 <b>하위</b> 항목들 — 평소 매출이 낮아 "
             "<b>고매출 요일(요일별 분석 참고)에 배치하면 부스팅 여지</b>가 큰 후보입니다. "
             "단, 노출일수가 너무 적은 항목은 표본이 작으니 함께 보세요.")
